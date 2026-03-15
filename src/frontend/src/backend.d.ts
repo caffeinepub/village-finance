@@ -65,7 +65,9 @@ export interface Customer {
     villageId: bigint;
     address: string;
     phone: string;
+    aadharNo: string;
 }
+export type CustomerFull = Customer;
 export enum UserRole {
     admin = "admin",
     user = "user",
@@ -83,18 +85,20 @@ export enum Variant_closed_active {
 export interface backendInterface {
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     balanceAdjustment(amount: bigint, description: string, isAddition: boolean): Promise<void>;
-    createCustomer(name: string, phone: string, address: string, villageId: bigint, userId: Principal): Promise<Customer>;
+    createCustomer(name: string, phone: string, address: string, aadharNo: string, villageId: bigint, userId: Principal): Promise<CustomerFull>;
     createVillage(name: string, shortCode: string): Promise<Village>;
     deleteCustomer(id: bigint): Promise<void>;
     deleteVillage(id: bigint): Promise<void>;
     disburseLoan(customerId: bigint, villageId: bigint, principal: bigint, interestRate: bigint, tenureMonths: bigint, processingFee: bigint): Promise<Loan>;
-    getAllCustomers(): Promise<Array<Customer>>;
+    topupLoan(existingLoanId: string, topupAmount: bigint, newInterestRate: bigint, newTenure: bigint, newProcessingFee: bigint): Promise<Loan>;
+    getAllCustomers(): Promise<Array<CustomerFull>>;
     getAllLoans(): Promise<Array<Loan>>;
+    getAllPayments(): Promise<Array<Payment>>;
     getAllTransactions(): Promise<Array<BalanceTransaction>>;
     getAllVillages(): Promise<Array<Village>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
-    getCustomer(id: bigint): Promise<Customer>;
+    getCustomer(id: bigint): Promise<CustomerFull>;
     getDashboardStats(): Promise<DashboardStats>;
     getLoansByCustomer(customerId: bigint): Promise<Array<Loan>>;
     getPaymentsByLoan(loanId: string): Promise<Array<Payment>>;
@@ -103,6 +107,7 @@ export interface backendInterface {
     isCallerAdmin(): Promise<boolean>;
     recordPayment(loanId: string, customerId: bigint, amountPaid: bigint, penalty: bigint, notes: string): Promise<Payment>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
-    updateCustomer(id: bigint, name: string, phone: string, address: string, villageId: bigint): Promise<Customer>;
+    updateCustomer(id: bigint, name: string, phone: string, address: string, aadharNo: string, villageId: bigint): Promise<CustomerFull>;
     updateVillage(id: bigint, name: string, shortCode: string): Promise<Village>;
+    _initializeAccessControlWithSecret(secret: string): Promise<void>;
 }

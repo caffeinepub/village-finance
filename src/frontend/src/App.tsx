@@ -4,7 +4,6 @@ import { Button } from "./components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { useActor } from "./hooks/useActor";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
-import Calendar from "./pages/Calendar";
 import Customers from "./pages/Customers";
 import Dashboard from "./pages/Dashboard";
 import Ledger from "./pages/Ledger";
@@ -16,21 +15,19 @@ export default function App() {
   const { identity, login, clear, isInitializing } = useInternetIdentity();
   const { actor, isFetching } = useActor();
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [_isReady, setIsReady] = useState(false);
+  const [isReady, setIsReady] = useState(false);
   const [isSettingUp, setIsSettingUp] = useState(false);
 
   const setupUser = useCallback(async () => {
     if (!actor) return;
     setIsSettingUp(true);
     try {
-      // Try to get role; if not registered, register automatically
       await actor.getCallerUserRole();
     } catch {
       try {
-        // Register with empty token (regular user) - UI always shows admin panel
-        await (actor as any)._initializeAccessControlWithSecret("");
+        await actor._initializeAccessControlWithSecret("init");
       } catch {
-        // ignore
+        // ignore errors here
       }
     }
     setIsReady(true);
@@ -51,7 +48,6 @@ export default function App() {
     { id: "customers", label: "Customers" },
     { id: "loans", label: "Loans" },
     { id: "payments", label: "Payments" },
-    { id: "calendar", label: "Calendar" },
     { id: "ledger", label: "Ledger" },
   ];
 
@@ -96,9 +92,25 @@ export default function App() {
     );
   }
 
+  if (!isReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div className="text-center">
+          <div className="text-4xl mb-4">🏦</div>
+          <div className="text-xl font-semibold text-indigo-700">
+            Village Finance
+          </div>
+          <div className="flex items-center justify-center gap-2 text-gray-500 mt-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Setting up your account...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -119,7 +131,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Navigation */}
       <div className="bg-white border-b shadow-sm sticky top-0 z-10 overflow-x-auto">
         <div className="max-w-7xl mx-auto px-4">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -139,16 +150,12 @@ export default function App() {
         </div>
       </div>
 
-      {/* Content */}
       <main className="max-w-7xl mx-auto px-4 py-6">
-        {(activeTab === "dashboard" || !activeTab) && (
-          <Dashboard onNavigate={setActiveTab} />
-        )}
+        {activeTab === "dashboard" && <Dashboard onNavigate={setActiveTab} />}
         {activeTab === "villages" && <Villages />}
         {activeTab === "customers" && <Customers />}
         {activeTab === "loans" && <Loans />}
         {activeTab === "payments" && <Payments />}
-        {activeTab === "calendar" && <Calendar />}
         {activeTab === "ledger" && <Ledger />}
       </main>
     </div>

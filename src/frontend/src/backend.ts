@@ -147,6 +147,7 @@ export interface Customer {
     villageId: bigint;
     address: string;
     phone: string;
+    aadharNo: string;
 }
 export enum UserRole {
     admin = "admin",
@@ -166,11 +167,12 @@ export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     balanceAdjustment(amount: bigint, description: string, isAddition: boolean): Promise<void>;
-    createCustomer(name: string, phone: string, address: string, villageId: bigint, userId: Principal): Promise<Customer>;
+    createCustomer(name: string, phone: string, address: string, aadharNo: string, villageId: bigint, userId: Principal): Promise<Customer>;
     createVillage(name: string, shortCode: string): Promise<Village>;
     deleteCustomer(id: bigint): Promise<void>;
     deleteVillage(id: bigint): Promise<void>;
     disburseLoan(customerId: bigint, villageId: bigint, principal: bigint, interestRate: bigint, tenureMonths: bigint, processingFee: bigint): Promise<Loan>;
+    topupLoan(existingLoanId: string, topupAmount: bigint, newInterestRate: bigint, newTenure: bigint, newProcessingFee: bigint): Promise<Loan>;
     getAllCustomers(): Promise<Array<Customer>>;
     getAllLoans(): Promise<Array<Loan>>;
     getAllTransactions(): Promise<Array<BalanceTransaction>>;
@@ -186,7 +188,7 @@ export interface backendInterface {
     isCallerAdmin(): Promise<boolean>;
     recordPayment(loanId: string, customerId: bigint, amountPaid: bigint, penalty: bigint, notes: string): Promise<Payment>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
-    updateCustomer(id: bigint, name: string, phone: string, address: string, villageId: bigint): Promise<Customer>;
+    updateCustomer(id: bigint, name: string, phone: string, address: string, aadharNo: string, villageId: bigint): Promise<Customer>;
     updateVillage(id: bigint, name: string, shortCode: string): Promise<Village>;
 }
 import type { BalanceTransaction as _BalanceTransaction, Loan as _Loan, UserProfile as _UserProfile, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
@@ -234,17 +236,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async createCustomer(arg0: string, arg1: string, arg2: string, arg3: bigint, arg4: Principal): Promise<Customer> {
+    async createCustomer(arg0: string, arg1: string, arg2: string, arg3: string, arg4: bigint, arg5: Principal): Promise<Customer> {
         if (this.processError) {
             try {
-                const result = await this.actor.createCustomer(arg0, arg1, arg2, arg3, arg4);
+                const result = await this.actor.createCustomer(arg0, arg1, arg2, arg3, arg4, arg5);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.createCustomer(arg0, arg1, arg2, arg3, arg4);
+            const result = await this.actor.createCustomer(arg0, arg1, arg2, arg3, arg4, arg5);
             return result;
         }
     }
@@ -301,6 +303,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.disburseLoan(arg0, arg1, arg2, arg3, arg4, arg5);
+            return from_candid_Loan_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async topupLoan(arg0: string, arg1: bigint, arg2: bigint, arg3: bigint, arg4: bigint): Promise<Loan> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).topupLoan(arg0, arg1, arg2, arg3, arg4);
+                return from_candid_Loan_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).topupLoan(arg0, arg1, arg2, arg3, arg4);
             return from_candid_Loan_n3(this._uploadFile, this._downloadFile, result);
         }
     }
@@ -514,17 +530,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async updateCustomer(arg0: bigint, arg1: string, arg2: string, arg3: string, arg4: bigint): Promise<Customer> {
+    async updateCustomer(arg0: bigint, arg1: string, arg2: string, arg3: string, arg4: string, arg5: bigint): Promise<Customer> {
         if (this.processError) {
             try {
-                const result = await this.actor.updateCustomer(arg0, arg1, arg2, arg3, arg4);
+                const result = await this.actor.updateCustomer(arg0, arg1, arg2, arg3, arg4, arg5);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.updateCustomer(arg0, arg1, arg2, arg3, arg4);
+            const result = await this.actor.updateCustomer(arg0, arg1, arg2, arg3, arg4, arg5);
             return result;
         }
     }

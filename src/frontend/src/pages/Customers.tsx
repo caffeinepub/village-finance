@@ -1,6 +1,17 @@
 import { Principal } from "@icp-sdk/core/principal";
-import { useCallback, useEffect, useState } from "react";
-import type { Customer, Village } from "../backend";
+import { FileText, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Village } from "../backend";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import {
@@ -20,22 +31,42 @@ import {
   SelectValue,
 } from "../components/ui/select";
 import { useActor } from "../hooks/useActor";
+import type { CustomerFull } from "../types";
+
+interface UploadedDoc {
+  name: string;
+  url: string;
+  type: string;
+  size: number;
+}
+
+function maskAadhar(aadhar: string): string {
+  if (!aadhar || aadhar.length < 4) return aadhar || "--";
+  const digits = aadhar.replace(/\D/g, "");
+  const last4 = digits.slice(-4);
+  return `XXXX-XXXX-${last4}`;
+}
 
 export default function Customers() {
   const { actor } = useActor();
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomers] = useState<CustomerFull[]>([]);
   const [villages, setVillages] = useState<Village[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const [edit, setEdit] = useState<Customer | null>(null);
+  const [edit, setEdit] = useState<CustomerFull | null>(null);
   const [form, setForm] = useState({
     name: "",
     phone: "",
     address: "",
+    aadharNo: "",
     villageId: "",
   });
   const [saving, setSaving] = useState(false);
+  const [phoneError, setPhoneError] = useState("");
+  const [docs, setDocs] = useState<UploadedDoc[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CustomerFull | null>(null);
 
   const load = useCallback(() => {
     if (!actor) return;
@@ -53,22 +84,56 @@ export default function Customers() {
 
   const openAdd = () => {
     setEdit(null);
-    setForm({ name: "", phone: "", address: "", villageId: "" });
+    setForm({ name: "", phone: "", address: "", aadharNo: "", villageId: "" });
+    setDocs([]);
+    setPhoneError("");
     setOpen(true);
   };
-  const openEdit = (c: Customer) => {
+
+  const openEdit = (c: CustomerFull) => {
     setEdit(c);
     setForm({
       name: c.name,
       phone: c.phone,
       address: c.address,
+      aadharNo: c.aadharNo || "",
       villageId: c.villageId.toString(),
     });
+    setDocs([]);
+    setPhoneError("");
     setOpen(true);
+  };
+
+  const handlePhoneChange = (value: string) => {
+    setForm((f) => ({ ...f, phone: value }));
+    if (phoneError) setPhoneError("");
+    // Inline duplicate check
+    if (value) {
+      const duplicate = customers.find(
+        (c) => c.phone === value && (!edit || c.id !== edit.id),
+      );
+      if (duplicate) {
+        setPhoneError(
+          "This mobile number is already registered to another customer.",
+        );
+      }
+    }
   };
 
   const save = async () => {
     if (!actor || !form.name || !form.villageId) return;
+
+    // Frontend duplicate check before backend call
+    const duplicate = customers.find(
+      (c) => c.phone === form.phone && (!edit || c.id !== edit.id),
+    );
+    if (duplicate) {
+      setPhoneError(
+        "This mobile number is already registered to another customer.",
+      );
+      return;
+    }
+
     setSaving(true);
     try {
       if (edit) {
@@ -77,14 +142,15 @@ export default function Customers() {
           form.name,
           form.phone,
           form.address,
+          form.aadharNo,
           BigInt(form.villageId),
         );
       } else {
-        // Use anonymous principal for admin-created customers
         await actor.createCustomer(
           form.name,
           form.phone,
           form.address,
+          form.aadharNo,
           BigInt(form.villageId),
           Principal.anonymous(),
         );
@@ -92,19 +158,50 @@ export default function Customers() {
       setOpen(false);
       load();
     } catch (e) {
-      alert(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      if (
+        msg.toLowerCase().includes("mobile number already exists") ||
+        msg.toLowerCase().includes("mobile number")
+      ) {
+        setPhoneError(
+          "This mobile number is already registered to another customer.",
+        );
+      } else {
+        alert(`Error saving customer: ${msg}`);
+      }
     } finally {
       setSaving(false);
     }
   };
 
-  const del = async (id: bigint) => {
-    if (!actor || !confirm("Delete this customer?")) return;
-    await actor.deleteCustomer(id);
+  const confirmDelete = async () => {
+    if (!actor || !deleteTarget) return;
+    await actor.deleteCustomer(deleteTarget.id);
+    setDeleteTarget(null);
     load();
   };
 
   const getVillage = (id: bigint) => villages.find((v) => v.id === id);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    const newDocs: UploadedDoc[] = [];
+    for (const file of files) {
+      const url = URL.createObjectURL(file);
+      newDocs.push({ name: file.name, url, type: file.type, size: file.size });
+    }
+    setDocs((prev) => [...prev, ...newDocs]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeDoc = (name: string) => {
+    setDocs((prev) => {
+      const doc = prev.find((d) => d.name === name);
+      if (doc) URL.revokeObjectURL(doc.url);
+      return prev.filter((d) => d.name !== name);
+    });
+  };
 
   const filtered = customers.filter(
     (c) =>
@@ -174,6 +271,11 @@ export default function Customers() {
                 </div>
                 <CardContent className="p-4">
                   <div className="text-sm text-gray-600 mb-1">{c.address}</div>
+                  {c.aadharNo && (
+                    <div className="text-xs text-gray-500 mb-1">
+                      Aadhar: {maskAadhar(c.aadharNo)}
+                    </div>
+                  )}
                   {village && (
                     <div className="inline-block bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded">
                       {village.shortCode} - {village.name}
@@ -193,7 +295,7 @@ export default function Customers() {
                       data-ocid={`customers.delete_button.${i + 1}`}
                       variant="destructive"
                       size="sm"
-                      onClick={() => del(c.id)}
+                      onClick={() => setDeleteTarget(c)}
                       className="flex-1"
                     >
                       Delete
@@ -206,8 +308,43 @@ export default function Customers() {
         </div>
       )}
 
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent data-ocid="customers.delete.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Customer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove the customer record for{" "}
+              <strong>{deleteTarget?.name}</strong>. This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-ocid="customers.delete_confirm.cancel_button">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-ocid="customers.delete_confirm.confirm_button"
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Add / Edit Dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent data-ocid="customers.dialog">
+        <DialogContent
+          data-ocid="customers.dialog"
+          className="max-h-[90vh] overflow-y-auto"
+        >
           <DialogHeader>
             <DialogTitle>{edit ? "Edit Customer" : "Add Customer"}</DialogTitle>
           </DialogHeader>
@@ -228,11 +365,20 @@ export default function Customers() {
               <Input
                 data-ocid="customers.phone.input"
                 value={form.phone}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, phone: e.target.value }))
-                }
+                onChange={(e) => handlePhoneChange(e.target.value)}
                 placeholder="Phone number"
+                className={
+                  phoneError ? "border-red-500 focus-visible:ring-red-500" : ""
+                }
               />
+              {phoneError && (
+                <p
+                  data-ocid="customers.phone.error_state"
+                  className="text-red-500 text-xs mt-1"
+                >
+                  {phoneError}
+                </p>
+              )}
             </div>
             <div>
               <Label>Address</Label>
@@ -243,6 +389,19 @@ export default function Customers() {
                   setForm((f) => ({ ...f, address: e.target.value }))
                 }
                 placeholder="Village address"
+              />
+            </div>
+            <div>
+              <Label>Aadhar No (optional)</Label>
+              <Input
+                data-ocid="customers.aadhar.input"
+                value={form.aadharNo}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, "").slice(0, 12);
+                  setForm((f) => ({ ...f, aadharNo: digits }));
+                }}
+                placeholder="12-digit Aadhar number"
+                inputMode="numeric"
               />
             </div>
             <div>
@@ -263,6 +422,61 @@ export default function Customers() {
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <Label>Customer Documents</Label>
+              <button
+                type="button"
+                data-ocid="customers.docs.upload_button"
+                className="mt-1 w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-indigo-400 transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="mx-auto h-6 w-6 text-gray-400 mb-1" />
+                <p className="text-sm text-gray-500">
+                  Click to upload PDFs or images
+                </p>
+                <p className="text-xs text-gray-400">PDF, JPG, PNG supported</p>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,image/*"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+              {docs.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {docs.map((doc) => (
+                    <div
+                      key={doc.name}
+                      className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="h-4 w-4 text-indigo-500 shrink-0" />
+                        <a
+                          href={doc.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm text-indigo-600 hover:underline truncate"
+                        >
+                          {doc.name}
+                        </a>
+                        <span className="text-xs text-gray-400 shrink-0">
+                          ({(doc.size / 1024).toFixed(1)} KB)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeDoc(doc.name)}
+                        className="text-red-400 hover:text-red-600 shrink-0 ml-2"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -275,7 +489,7 @@ export default function Customers() {
             <Button
               data-ocid="customers.save.save_button"
               onClick={save}
-              disabled={saving || !form.name || !form.villageId}
+              disabled={saving || !form.name || !form.villageId || !!phoneError}
             >
               {saving ? "Saving..." : "Save"}
             </Button>

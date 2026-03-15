@@ -14,6 +14,7 @@ import {
 } from "../components/ui/card";
 import { useActor } from "../hooks/useActor";
 import { formatDate, formatRupees } from "../utils/format";
+import Calendar from "./Calendar";
 
 interface Props {
   onNavigate: (tab: string) => void;
@@ -131,7 +132,7 @@ export default function Dashboard({ onNavigate }: Props) {
       </div>
 
       {/* Recent Transactions */}
-      <Card>
+      <Card className="mb-8">
         <CardHeader>
           <CardTitle className="text-lg">Recent Transactions</CardTitle>
         </CardHeader>
@@ -160,7 +161,12 @@ export default function Dashboard({ onNavigate }: Props) {
                   <div className="flex items-center gap-3">
                     <Badge className={txTypeColor(tx.type)}>{tx.type}</Badge>
                     <span
-                      className={`font-bold ${tx.type === Variant_adjustment_collection_disbursal.disbursal ? "text-red-600" : "text-green-600"}`}
+                      className={`font-bold ${
+                        tx.type ===
+                        Variant_adjustment_collection_disbursal.disbursal
+                          ? "text-red-600"
+                          : "text-green-600"
+                      }`}
                     >
                       {tx.type ===
                       Variant_adjustment_collection_disbursal.disbursal
@@ -175,6 +181,14 @@ export default function Dashboard({ onNavigate }: Props) {
           )}
         </CardContent>
       </Card>
+
+      {/* Collection Calendar */}
+      <div className="mt-2">
+        <h3 className="text-xl font-bold text-gray-800 mb-4">
+          Collection Calendar
+        </h3>
+        <Calendar />
+      </div>
     </div>
   );
 }

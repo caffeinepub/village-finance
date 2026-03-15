@@ -22,6 +22,7 @@ export const Customer = IDL.Record({
   'villageId' : IDL.Nat,
   'address' : IDL.Text,
   'phone' : IDL.Text,
+  'aadharNo' : IDL.Text,
 });
 export const Village = IDL.Record({
   'id' : IDL.Nat,
@@ -80,7 +81,7 @@ export const idlService = IDL.Service({
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'balanceAdjustment' : IDL.Func([IDL.Nat, IDL.Text, IDL.Bool], [], []),
   'createCustomer' : IDL.Func(
-      [IDL.Text, IDL.Text, IDL.Text, IDL.Nat, IDL.Principal],
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat, IDL.Principal],
       [Customer],
       [],
     ),
@@ -116,7 +117,7 @@ export const idlService = IDL.Service({
     ),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'updateCustomer' : IDL.Func(
-      [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],
+      [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],
       [Customer],
       [],
     ),
@@ -198,7 +199,7 @@ export const idlFactory = ({ IDL }) => {
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'balanceAdjustment' : IDL.Func([IDL.Nat, IDL.Text, IDL.Bool], [], []),
     'createCustomer' : IDL.Func(
-        [IDL.Text, IDL.Text, IDL.Text, IDL.Nat, IDL.Principal],
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat, IDL.Principal],
         [Customer],
         [],
       ),
@@ -238,7 +239,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'updateCustomer' : IDL.Func(
-        [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],
+        [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],
         [Customer],
         [],
       ),

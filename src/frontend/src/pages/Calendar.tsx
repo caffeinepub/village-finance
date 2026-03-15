@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
-import type { Customer, Loan } from "../backend";
+import type { Loan } from "../backend";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { useActor } from "../hooks/useActor";
+import type { CustomerFull } from "../types";
 import { formatRupees } from "../utils/format";
 
 interface EMIEntry {
   loan: Loan;
-  customer: Customer;
+  customer: CustomerFull;
   dueDate: Date;
   emiNumber: number;
   amount: bigint;
@@ -104,9 +105,6 @@ export default function Calendar() {
 
   return (
     <div data-ocid="calendar.section">
-      <h2 className="text-2xl font-bold text-gray-800 mb-2">
-        Collection Calendar
-      </h2>
       <p className="text-gray-500 mb-6">
         Upcoming EMI due dates in the next 30 days
       </p>
