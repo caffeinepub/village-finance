@@ -1,3 +1,5 @@
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Loan, Payment, Village } from "../backend";
 import { Variant_closed_active } from "../backend";
@@ -44,6 +46,131 @@ function calcTotalInterest(
   return (principal * rate * tenure) / 100;
 }
 
+function generateLoanProposalPDF(
+  loan: Loan,
+  customerName: string,
+  villageName: string,
+  _formatRupeesFn: (v: bigint) => string,
+  formatDateFn: (v: bigint) => string,
+) {
+  const doc = new jsPDF();
+  const principalNum = Number(loan.principal) / 100;
+  const rateNum = Number(loan.interestRate) / 100;
+  const tenureNum = Number(loan.tenureMonths);
+  const totalInterest = (principalNum * rateNum * tenureNum) / 100;
+  const totalRepayable = principalNum + totalInterest;
+  const rawEMI = totalRepayable / tenureNum;
+  const emi = Math.ceil(rawEMI / 10) * 10;
+  const principalPerEMI = principalNum / tenureNum;
+  const interestPerEMI = totalInterest / tenureNum;
+
+  // Header
+  doc.setFontSize(18);
+  doc.setTextColor(20, 100, 90);
+  doc.text("Village Finance", 105, 18, { align: "center" });
+  doc.setFontSize(12);
+  doc.setTextColor(80, 80, 80);
+  doc.text("Loan Proposal Document", 105, 26, { align: "center" });
+  doc.setLineWidth(0.5);
+  doc.setDrawColor(20, 100, 90);
+  doc.line(14, 30, 196, 30);
+
+  // Loan Details section
+  doc.setFontSize(13);
+  doc.setTextColor(20, 100, 90);
+  doc.text("Loan Details", 14, 40);
+
+  const disbursedDate = formatDateFn(loan.disbursedAt);
+  autoTable(doc, {
+    startY: 44,
+    head: [["Field", "Value"]],
+    body: [
+      ["Loan ID", loan.loanId],
+      ["Customer Name", customerName],
+      ["Village", villageName],
+      ["Date Disbursed", disbursedDate],
+      ["Principal Amount", `Rs. ${principalNum.toFixed(2)}`],
+      ["Interest Rate", `${rateNum.toFixed(2)}% per month (flat)`],
+      ["Tenure", `${tenureNum} months`],
+      [
+        "Processing Fee",
+        `Rs. ${(Number(loan.processingFee) / 100).toFixed(2)}`,
+      ],
+      ["Total Interest", `Rs. ${totalInterest.toFixed(2)}`],
+      ["Total Repayable", `Rs. ${totalRepayable.toFixed(2)}`],
+      ["Monthly EMI", `Rs. ${emi.toFixed(2)}`],
+    ],
+    theme: "grid",
+    headStyles: { fillColor: [20, 100, 90], textColor: 255 },
+    alternateRowStyles: { fillColor: [240, 250, 248] },
+    margin: { left: 14, right: 14 },
+  });
+
+  // Repayment Schedule section
+  const afterTableY = (doc as any).lastAutoTable.finalY + 12;
+  doc.setFontSize(13);
+  doc.setTextColor(20, 100, 90);
+  doc.text("Repayment Schedule", 14, afterTableY);
+
+  const disbursedMs = Number(loan.disbursedAt) / 1_000_000;
+  const scheduleRows: string[][] = [];
+  let outstandingPrincipal = principalNum;
+  for (let i = 1; i <= tenureNum; i++) {
+    const dueDate = new Date(disbursedMs);
+    dueDate.setMonth(dueDate.getMonth() + i);
+    const dueDateStr = dueDate.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+    outstandingPrincipal = Math.max(0, principalNum - principalPerEMI * i);
+    scheduleRows.push([
+      i.toString(),
+      dueDateStr,
+      `Rs. ${emi.toFixed(2)}`,
+      `Rs. ${principalPerEMI.toFixed(2)}`,
+      `Rs. ${interestPerEMI.toFixed(2)}`,
+      `Rs. ${outstandingPrincipal.toFixed(2)}`,
+    ]);
+  }
+
+  autoTable(doc, {
+    startY: afterTableY + 4,
+    head: [
+      [
+        "Month",
+        "Due Date",
+        "EMI",
+        "Principal",
+        "Interest",
+        "Outstanding Principal",
+      ],
+    ],
+    body: scheduleRows,
+    theme: "striped",
+    headStyles: { fillColor: [20, 100, 90], textColor: 255, fontSize: 9 },
+    bodyStyles: { fontSize: 8 },
+    alternateRowStyles: { fillColor: [240, 250, 248] },
+    margin: { left: 14, right: 14 },
+  });
+
+  // Footer
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let p = 1; p <= pageCount; p++) {
+    doc.setPage(p);
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text(
+      `Village Finance | Generated on ${new Date().toLocaleDateString("en-IN")} | Page ${p} of ${pageCount}`,
+      105,
+      doc.internal.pageSize.height - 8,
+      { align: "center" },
+    );
+  }
+
+  doc.save(`VF_LoanProposal_${loan.loanId}.pdf`);
+}
+
 export default function Loans() {
   const { actor } = useActor();
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -59,6 +186,9 @@ export default function Loans() {
   const [disbursalReceiptOpen, setDisbursalReceiptOpen] = useState(false);
   const [sharingDisbursal, setSharingDisbursal] = useState(false);
   const disbursalReceiptRef = useRef<HTMLDivElement>(null);
+
+  // Document upload state
+  const [loanDocs, setLoanDocs] = useState<File[]>([]);
 
   // Top-up state
   const [topupOpen, setTopupOpen] = useState(false);
@@ -155,6 +285,17 @@ export default function Loans() {
   const topupNewPrincipalNum = Number(topupNewPrincipal) / 100;
   const topupNewEMI = calcEMI(topupNewPrincipalNum, topupRate, topupTenure);
 
+  const resetDisburseForm = () => {
+    setForm({
+      customerId: "",
+      principal: "",
+      interestRate: "",
+      tenure: "",
+      processingFee: "",
+    });
+    setLoanDocs([]);
+  };
+
   const disburse = async () => {
     if (!actor || !form.customerId || !form.principal) return;
     setSaving(true);
@@ -172,13 +313,7 @@ export default function Loans() {
         rupeeInputToPaise(form.processingFee || "0"),
       );
       setDisburseOpen(false);
-      setForm({
-        customerId: "",
-        principal: "",
-        interestRate: "",
-        tenure: "",
-        processingFee: "",
-      });
+      resetDisburseForm();
       load();
       setDisbursalLoan(loan);
       setDisbursalReceiptOpen(true);
@@ -491,7 +626,13 @@ export default function Loans() {
       )}
 
       {/* Disburse Dialog */}
-      <Dialog open={disburseOpen} onOpenChange={setDisburseOpen}>
+      <Dialog
+        open={disburseOpen}
+        onOpenChange={(v) => {
+          setDisburseOpen(v);
+          if (!v) resetDisburseForm();
+        }}
+      >
         <DialogContent data-ocid="loans.disburse.dialog" className="max-w-md">
           <DialogHeader>
             <DialogTitle>Disburse New Loan</DialogTitle>
@@ -598,12 +739,67 @@ export default function Loans() {
                 </div>
               </div>
             )}
+
+            {/* Loan Documents Upload */}
+            <div className="space-y-2">
+              <Label>Loan Documents (Optional)</Label>
+              <label
+                data-ocid="loans.docs.upload_button"
+                className="border-2 border-dashed border-teal-200 rounded-lg p-4 text-center cursor-pointer hover:border-teal-400 hover:bg-teal-50 transition-colors block"
+              >
+                <div className="text-3xl mb-1">📎</div>
+                <div className="text-sm text-gray-600">
+                  Click to upload documents
+                </div>
+                <div className="text-xs text-gray-400 mt-1">
+                  Any file type accepted (ID proof, income docs, etc.)
+                </div>
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    setLoanDocs((prev) => [...prev, ...files]);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {loanDocs.length > 0 && (
+                <div className="space-y-1">
+                  {loanDocs.map((file, idx) => (
+                    <div
+                      key={`${file.name}-${idx}`}
+                      className="flex items-center justify-between bg-teal-50 border border-teal-100 rounded px-3 py-1.5 text-sm"
+                    >
+                      <span className="text-teal-800 truncate max-w-[200px]">
+                        📄 {file.name}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-red-400 hover:text-red-600 ml-2 text-xs font-semibold"
+                        onClick={() =>
+                          setLoanDocs((prev) =>
+                            prev.filter((_, i) => i !== idx),
+                          )
+                        }
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button
               data-ocid="loans.cancel.cancel_button"
               variant="outline"
-              onClick={() => setDisburseOpen(false)}
+              onClick={() => {
+                setDisburseOpen(false);
+                resetDisburseForm();
+              }}
             >
               Cancel
             </Button>
@@ -723,21 +919,38 @@ export default function Loans() {
                   </div>
 
                   {/* Share Buttons */}
-                  <div className="flex gap-3">
+                  <div className="flex gap-2">
                     <Button
                       data-ocid="loans.disbursal_receipt.whatsapp.primary_button"
                       onClick={shareDisbursalWhatsApp}
                       disabled={sharingDisbursal}
-                      className="flex-1 bg-green-500 hover:bg-green-600 text-white"
+                      className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs"
                     >
                       {sharingDisbursal ? "Preparing..." : "📤 WhatsApp"}
                     </Button>
                     <Button
                       data-ocid="loans.disbursal_receipt.sms.secondary_button"
                       onClick={shareDisbursalSMS}
-                      className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
+                      className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs"
                     >
                       💬 SMS
+                    </Button>
+                    <Button
+                      data-ocid="loans.disbursal_receipt.pdf.secondary_button"
+                      onClick={() => {
+                        const cust = getCustomer(disbursalLoan.customerId);
+                        const vill = getVillage(disbursalLoan.villageId);
+                        generateLoanProposalPDF(
+                          disbursalLoan,
+                          cust?.name || "Customer",
+                          vill ? `${vill.shortCode} - ${vill.name}` : "--",
+                          formatRupees,
+                          formatDate,
+                        );
+                      }}
+                      className="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-xs"
+                    >
+                      📄 PDF
                     </Button>
                   </div>
                 </div>
@@ -1052,23 +1265,68 @@ export default function Loans() {
         open={!!detailLoan}
         onOpenChange={(v) => !v && setDetailLoan(null)}
       >
-        <DialogContent data-ocid="loans.detail.dialog" className="max-w-lg">
+        <DialogContent
+          data-ocid="loans.detail.dialog"
+          className="max-w-lg max-h-[90vh] overflow-y-auto"
+        >
           <DialogHeader>
             <DialogTitle>Loan Details — {detailLoan?.loanId}</DialogTitle>
           </DialogHeader>
           {detailLoan && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-2 text-sm">
+              {/* Customer Profile at the TOP */}
+              {(() => {
+                const detailCust = getCustomer(detailLoan.customerId);
+                const detailVill = getVillage(detailLoan.villageId);
+                return (
+                  <div className="bg-gradient-to-r from-teal-500 to-cyan-600 rounded-xl p-4 text-white">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-white/30 rounded-full flex items-center justify-center font-bold text-2xl">
+                        {detailCust?.name?.[0] || "?"}
+                      </div>
+                      <div>
+                        <div className="font-bold text-lg">
+                          {detailCust?.name || "--"}
+                        </div>
+                        {detailCust?.phone && (
+                          <div className="text-sm opacity-85">
+                            📞 {detailCust.phone}
+                          </div>
+                        )}
+                        {detailVill && (
+                          <div className="text-xs opacity-75">
+                            🏘 {detailVill.shortCode} - {detailVill.name}
+                          </div>
+                        )}
+                      </div>
+                      <div className="ml-auto">
+                        <Badge
+                          className={
+                            detailLoan.status === Variant_closed_active.active
+                              ? "bg-green-300 text-green-900"
+                              : "bg-gray-200 text-gray-700"
+                          }
+                        >
+                          {detailLoan.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Loan Details */}
+              <div className="grid grid-cols-2 gap-2 text-sm bg-gray-50 rounded-lg p-3">
                 <div>
-                  <span className="text-muted-foreground">Customer:</span>{" "}
-                  <span className="font-medium">
-                    {getCustomer(detailLoan.customerId)?.name}
+                  <span className="text-muted-foreground">Loan ID:</span>{" "}
+                  <span className="font-mono font-medium text-xs">
+                    {detailLoan.loanId}
                   </span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Village:</span>{" "}
+                  <span className="text-muted-foreground">Disbursed:</span>{" "}
                   <span className="font-medium">
-                    {getVillage(detailLoan.villageId)?.shortCode}
+                    {formatDate(detailLoan.disbursedAt)}
                   </span>
                 </div>
                 <div>
@@ -1090,18 +1348,13 @@ export default function Loans() {
                   </span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Status:</span>{" "}
-                  <Badge
-                    className={
-                      detailLoan.status === Variant_closed_active.active
-                        ? "bg-green-100 text-green-800"
-                        : "bg-gray-100 text-gray-700"
-                    }
-                  >
-                    {detailLoan.status}
-                  </Badge>
+                  <span className="text-muted-foreground">Tenure:</span>{" "}
+                  <span className="font-medium">
+                    {detailLoan.tenureMonths.toString()} months
+                  </span>
                 </div>
               </div>
+
               <div>
                 <div className="font-semibold mb-2">Payment History</div>
                 {payments.length === 0 ? (
@@ -1130,7 +1383,26 @@ export default function Loans() {
               </div>
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            {detailLoan && (
+              <Button
+                data-ocid="loans.detail.pdf.secondary_button"
+                onClick={() => {
+                  const cust = getCustomer(detailLoan.customerId);
+                  const vill = getVillage(detailLoan.villageId);
+                  generateLoanProposalPDF(
+                    detailLoan,
+                    cust?.name || "Customer",
+                    vill ? `${vill.shortCode} - ${vill.name}` : "--",
+                    formatRupees,
+                    formatDate,
+                  );
+                }}
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                📄 Download Loan Proposal
+              </Button>
+            )}
             <Button
               data-ocid="loans.detail.close_button"
               variant="outline"

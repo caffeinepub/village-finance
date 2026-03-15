@@ -110,6 +110,11 @@ export const idlService = IDL.Service({
     ),
   'getVillage' : IDL.Func([IDL.Nat], [Village], ['query']),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'topupLoan' : IDL.Func(
+      [IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat, IDL.Nat],
+      [Loan],
+      [],
+    ),
   'recordPayment' : IDL.Func(
       [IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat, IDL.Text],
       [Payment],
@@ -232,6 +237,11 @@ export const idlFactory = ({ IDL }) => {
       ),
     'getVillage' : IDL.Func([IDL.Nat], [Village], ['query']),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'topupLoan' : IDL.Func(
+        [IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat, IDL.Nat],
+        [Loan],
+        [],
+      ),
     'recordPayment' : IDL.Func(
         [IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat, IDL.Text],
         [Payment],

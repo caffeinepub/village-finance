@@ -39,6 +39,7 @@ export default function Payments() {
   const [sharing, setSharing] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Payment | null>(null);
+  const [loanClosedMsg, setLoanClosedMsg] = useState(false);
   const receiptRef = useRef<HTMLDivElement>(null);
 
   const loadData = useCallback(() => {
@@ -75,6 +76,32 @@ export default function Payments() {
     ? villages.find((v) => v.id === selectedLoan.villageId)
     : null;
 
+  // Compute remaining outstanding for selected loan — include penalties in total paid
+  const loanTotalPaid = selectedLoan
+    ? allPayments
+        .filter((p) => p.loanId === selectedLoan.loanId)
+        .reduce((sum, p) => sum + p.amountPaid + p.penalty, 0n)
+    : 0n;
+  const remainingOutstanding = selectedLoan
+    ? selectedLoan.totalAmount > loanTotalPaid
+      ? selectedLoan.totalAmount - loanTotalPaid
+      : 0n
+    : 0n;
+
+  // Auto-fill last EMI: if remaining outstanding <= standard EMI, pre-fill with exact remaining
+  useEffect(() => {
+    if (selectedLoan && remainingOutstanding > 0n) {
+      const standardEmi = selectedLoan.emi;
+      if (remainingOutstanding <= standardEmi) {
+        setAmount((Number(remainingOutstanding) / 100).toFixed(2));
+      } else {
+        setAmount((Number(standardEmi) / 100).toFixed(2));
+      }
+    } else {
+      setAmount("");
+    }
+  }, [selectedLoan, remainingOutstanding]);
+
   const receiptCustomer = receipt
     ? customers.find((c) => c.id === receipt.customerId)
     : null;
@@ -94,6 +121,14 @@ export default function Payments() {
       setAmount("");
       setPenalty("");
       setNotes("");
+
+      // Check if loan is fully paid — if totalOutstanding is 0, loan is now closed
+      if (payment.totalOutstanding === 0n) {
+        setLoanClosedMsg(true);
+        setSelectedLoanId("");
+        setTimeout(() => setLoanClosedMsg(false), 5000);
+      }
+
       loadData();
     } catch (e) {
       alert(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -230,6 +265,17 @@ export default function Payments() {
     <div data-ocid="payments.section">
       <h2 className="text-2xl font-bold text-gray-800 mb-6">Record Payment</h2>
 
+      {/* Loan closed success banner */}
+      {loanClosedMsg && (
+        <div
+          data-ocid="payments.loan_closed.success_state"
+          className="mb-4 bg-green-100 border border-green-400 text-green-800 rounded-lg px-4 py-3 flex items-center gap-2 font-semibold"
+        >
+          ✅ Loan fully paid and closed! The loan account has been marked as
+          Closed.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="border-0 shadow-md">
           <CardHeader>
@@ -238,7 +284,14 @@ export default function Payments() {
           <CardContent className="space-y-4">
             <div>
               <Label>Select Loan</Label>
-              <Select value={selectedLoanId} onValueChange={setSelectedLoanId}>
+              <Select
+                value={selectedLoanId}
+                onValueChange={(v) => {
+                  setSelectedLoanId(v);
+                  setAmount("");
+                  setPenalty("");
+                }}
+              >
                 <SelectTrigger data-ocid="payments.loan.select">
                   <SelectValue placeholder="Search by Loan ID or customer" />
                 </SelectTrigger>
@@ -273,6 +326,18 @@ export default function Payments() {
                     {formatRupees(selectedLoan.emi)}
                   </span>
                 </div>
+                <div>
+                  <span className="text-gray-500">Remaining Outstanding:</span>{" "}
+                  <span
+                    className={`font-semibold ${
+                      remainingOutstanding === 0n
+                        ? "text-green-600"
+                        : "text-red-600"
+                    }`}
+                  >
+                    {formatRupees(remainingOutstanding)}
+                  </span>
+                </div>
               </div>
             )}
 
@@ -282,7 +347,20 @@ export default function Payments() {
                 data-ocid="payments.amount.input"
                 type="number"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (selectedLoan && val !== "") {
+                    const enteredPaise = Math.round(
+                      Number.parseFloat(val) * 100,
+                    );
+                    const maxPaise = Number(remainingOutstanding);
+                    if (enteredPaise > maxPaise && maxPaise >= 0) {
+                      setAmount((maxPaise / 100).toFixed(2));
+                      return;
+                    }
+                  }
+                  setAmount(val);
+                }}
                 placeholder="0.00"
               />
             </div>
@@ -372,7 +450,9 @@ export default function Payments() {
                 </div>
                 <div className="text-center mt-4 pt-3 border-t border-gray-100">
                   <div className="text-xs text-gray-400">
-                    Thank you for your payment
+                    {receipt.totalOutstanding === 0n
+                      ? "🎉 Loan Fully Paid & Closed!"
+                      : "Thank you for your payment"}
                   </div>
                 </div>
               </div>

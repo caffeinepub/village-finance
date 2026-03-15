@@ -1,7 +1,8 @@
 import { Principal } from "@icp-sdk/core/principal";
 import { FileText, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Village } from "../backend";
+import type { Loan, Village } from "../backend";
+import { Variant_closed_active } from "../backend";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../components/ui/alert-dialog";
+import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import {
@@ -32,6 +34,7 @@ import {
 } from "../components/ui/select";
 import { useActor } from "../hooks/useActor";
 import type { CustomerFull } from "../types";
+import { formatDate, formatRupees } from "../utils/format";
 
 interface UploadedDoc {
   name: string;
@@ -51,6 +54,7 @@ export default function Customers() {
   const { actor } = useActor();
   const [customers, setCustomers] = useState<CustomerFull[]>([]);
   const [villages, setVillages] = useState<Village[]>([]);
+  const [allLoans, setAllLoans] = useState<Loan[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -68,12 +72,23 @@ export default function Customers() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deleteTarget, setDeleteTarget] = useState<CustomerFull | null>(null);
 
+  // View Loans state
+  const [viewLoansCustomer, setViewLoansCustomer] =
+    useState<CustomerFull | null>(null);
+  const [customerLoans, setCustomerLoans] = useState<Loan[]>([]);
+  const [loansLoading, setLoansLoading] = useState(false);
+
   const load = useCallback(() => {
     if (!actor) return;
-    Promise.all([actor.getAllCustomers(), actor.getAllVillages()])
-      .then(([c, v]) => {
+    Promise.all([
+      actor.getAllCustomers(),
+      actor.getAllVillages(),
+      actor.getAllLoans(),
+    ])
+      .then(([c, v, loans]) => {
         setCustomers(c);
         setVillages(v);
+        setAllLoans(loans);
       })
       .finally(() => setLoading(false));
   }, [actor]);
@@ -81,6 +96,15 @@ export default function Customers() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const getLoanStats = (customerId: bigint) => {
+    const loans = allLoans.filter((l) => l.customerId === customerId);
+    const totalLoans = loans.length;
+    const activeOutstanding = loans
+      .filter((l) => l.status === Variant_closed_active.active)
+      .reduce((sum, l) => sum + l.totalAmount, BigInt(0));
+    return { totalLoans, activeOutstanding };
+  };
 
   const openAdd = () => {
     setEdit(null);
@@ -203,6 +227,26 @@ export default function Customers() {
     });
   };
 
+  const viewLoans = async (c: CustomerFull) => {
+    setViewLoansCustomer(c);
+    setCustomerLoans([]);
+    setLoansLoading(true);
+    try {
+      if (actor) {
+        const loans = await actor.getLoansByCustomer(c.id);
+        setCustomerLoans(
+          [...loans].sort(
+            (a, b) => Number(b.disbursedAt) - Number(a.disbursedAt),
+          ),
+        );
+      }
+    } catch (e) {
+      console.error("Failed to load loans:", e);
+    } finally {
+      setLoansLoading(false);
+    }
+  };
+
   const filtered = customers.filter(
     (c) =>
       c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -252,23 +296,47 @@ export default function Customers() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((c, i) => {
             const village = getVillage(c.villageId);
+            const { totalLoans, activeOutstanding } = getLoanStats(c.id);
             return (
               <Card
                 key={c.id.toString()}
                 data-ocid={`customers.item.${i + 1}`}
                 className="border-0 shadow-md overflow-hidden"
               >
-                <div className="bg-gradient-to-r from-teal-500 to-cyan-600 p-4 text-white">
+                <button
+                  type="button"
+                  className="w-full text-left bg-gradient-to-r from-teal-500 to-cyan-600 p-4 text-white hover:from-teal-600 hover:to-cyan-700 transition-colors cursor-pointer"
+                  onClick={() => viewLoans(c)}
+                  data-ocid={`customers.view_loans.button.${i + 1}`}
+                  title="Tap to view loans"
+                >
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-white/30 rounded-full flex items-center justify-center font-bold text-lg">
+                    <div className="w-10 h-10 bg-white/30 rounded-full flex items-center justify-center font-bold text-lg shrink-0">
                       {c.name[0]}
                     </div>
-                    <div>
+                    <div className="flex-1 min-w-0">
                       <div className="font-bold">{c.name}</div>
                       <div className="text-sm opacity-80">{c.phone}</div>
+                      <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                        <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full font-medium">
+                          🏦 {totalLoans} {totalLoans === 1 ? "Loan" : "Loans"}
+                        </span>
+                        {totalLoans > 0 && (
+                          <span className="text-xs bg-amber-400/80 text-amber-950 px-2 py-0.5 rounded-full font-semibold">
+                            ₹{" "}
+                            {formatRupees(activeOutstanding)
+                              .replace("₹", "")
+                              .trim()}{" "}
+                            outstanding
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="ml-auto text-xs bg-white/20 px-2 py-0.5 rounded-full shrink-0">
+                      View →
                     </div>
                   </div>
-                </div>
+                </button>
                 <CardContent className="p-4">
                   <div className="text-sm text-gray-600 mb-1">{c.address}</div>
                   {c.aadharNo && (
@@ -307,6 +375,157 @@ export default function Customers() {
           })}
         </div>
       )}
+
+      {/* View Loans Dialog */}
+      <Dialog
+        open={!!viewLoansCustomer}
+        onOpenChange={(v) => !v && setViewLoansCustomer(null)}
+      >
+        <DialogContent
+          data-ocid="customers.loans.dialog"
+          className="max-w-lg max-h-[90vh] overflow-y-auto"
+        >
+          <DialogHeader>
+            <DialogTitle>Customer Loans</DialogTitle>
+          </DialogHeader>
+
+          {viewLoansCustomer && (
+            <>
+              {/* Customer Profile Card at the TOP */}
+              <div className="bg-gradient-to-r from-teal-500 to-cyan-600 rounded-xl p-4 text-white mb-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-white/30 rounded-full flex items-center justify-center font-bold text-2xl">
+                    {viewLoansCustomer.name[0]}
+                  </div>
+                  <div>
+                    <div className="font-bold text-lg">
+                      {viewLoansCustomer.name}
+                    </div>
+                    <div className="text-sm opacity-85">
+                      📞 {viewLoansCustomer.phone}
+                    </div>
+                    {viewLoansCustomer.address && (
+                      <div className="text-xs opacity-75">
+                        📍 {viewLoansCustomer.address}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-2 flex-wrap">
+                  {viewLoansCustomer.aadharNo && (
+                    <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
+                      Aadhar: {maskAadhar(viewLoansCustomer.aadharNo)}
+                    </span>
+                  )}
+                  {getVillage(viewLoansCustomer.villageId) && (
+                    <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
+                      🏘 {getVillage(viewLoansCustomer.villageId)?.shortCode} -{" "}
+                      {getVillage(viewLoansCustomer.villageId)?.name}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Loans List */}
+              <div className="font-semibold text-gray-700 mb-2">
+                Loan Accounts
+              </div>
+              {loansLoading ? (
+                <div
+                  data-ocid="customers.loans.loading_state"
+                  className="text-center py-8 text-gray-400"
+                >
+                  Loading loans...
+                </div>
+              ) : customerLoans.length === 0 ? (
+                <div
+                  data-ocid="customers.loans.empty_state"
+                  className="text-center py-8 text-gray-400"
+                >
+                  No loans found for this customer.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {customerLoans.map((loan, idx) => {
+                    const isActive =
+                      loan.status === Variant_closed_active.active;
+                    return (
+                      <div
+                        key={loan.loanId}
+                        data-ocid={`customers.loans.item.${idx + 1}`}
+                        className={`rounded-lg border-2 overflow-hidden ${
+                          isActive ? "border-teal-300" : "border-gray-200"
+                        }`}
+                      >
+                        <div
+                          className={`px-4 py-2 flex items-center justify-between ${
+                            isActive ? "bg-teal-50" : "bg-gray-50"
+                          }`}
+                        >
+                          <span className="font-mono text-sm font-bold text-gray-700">
+                            {loan.loanId}
+                          </span>
+                          <Badge
+                            className={
+                              isActive
+                                ? "bg-teal-100 text-teal-800"
+                                : "bg-gray-200 text-gray-600"
+                            }
+                          >
+                            {loan.status}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 px-4 py-3 text-sm">
+                          <div>
+                            <span className="text-gray-500">Principal:</span>{" "}
+                            <span className="font-semibold">
+                              {formatRupees(loan.principal)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">EMI:</span>{" "}
+                            <span className="font-semibold text-teal-700">
+                              {formatRupees(loan.emi)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Total:</span>{" "}
+                            <span className="font-semibold">
+                              {formatRupees(loan.totalAmount)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Tenure:</span>{" "}
+                            <span className="font-semibold">
+                              {loan.tenureMonths.toString()} months
+                            </span>
+                          </div>
+                          <div className="col-span-2">
+                            <span className="text-gray-500">Disbursed:</span>{" "}
+                            <span className="font-semibold">
+                              {formatDate(loan.disbursedAt)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+
+          <DialogFooter>
+            <Button
+              data-ocid="customers.loans.close_button"
+              variant="outline"
+              onClick={() => setViewLoansCustomer(null)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog

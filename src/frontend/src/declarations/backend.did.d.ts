@@ -86,6 +86,7 @@ export interface _SERVICE {
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'getVillage' : ActorMethod<[bigint], Village>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
+  'topupLoan' : ActorMethod<[string, bigint, bigint, bigint, bigint], Loan>,
   'recordPayment' : ActorMethod<[string, bigint, bigint, bigint, string], Payment>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'updateCustomer' : ActorMethod<[bigint, string, string, string, string, bigint], Customer>,

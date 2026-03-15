@@ -367,14 +367,17 @@ actor {
     for ((_, p) in payments.entries()) {
       if (p.loanId == loanId) { totalPaidSoFar += p.amountPaid + p.penalty };
     };
-    let totalPaidAfter = totalPaidSoFar + amountPaid + penalty;
+    // Cap amountPaid so total collected never exceeds totalAmount (last EMI adjustment)
+    let remainingAfterPenalty = safeSub(loan.totalAmount, totalPaidSoFar + penalty);
+    let effectiveAmountPaid = if (amountPaid > remainingAfterPenalty) remainingAfterPenalty else amountPaid;
+    let totalPaidAfter = totalPaidSoFar + effectiveAmountPaid + penalty;
     let outstandingTotal = safeSub(loan.totalAmount, totalPaidAfter);
     let outstandingPrincipal = if (loan.totalAmount > 0) (loan.principal * outstandingTotal) / loan.totalAmount else 0;
     let payment : Payment = {
       id = paymentIdCounter;
       loanId;
       customerId;
-      amountPaid;
+      amountPaid = effectiveAmountPaid;
       penalty;
       paymentDate = Time.now();
       outstandingPrincipal;
@@ -387,7 +390,19 @@ actor {
     let txn : BalanceTransaction = { id = transactionIdCounter; type_ = #collection; amount = amountPaid + penalty; description = "Payment for loan: " # loanId; date = Time.now(); referenceId = payment.receiptNo };
     transactions.add(transactionIdCounter, txn);
     transactionIdCounter += 1;
-    balanceInHand += (amountPaid + penalty);
+    balanceInHand += (effectiveAmountPaid + penalty);
+    // Auto-close the loan if the full outstanding amount has been received
+    if (outstandingTotal == 0) {
+      let closedLoan : Loan = {
+        id = loan.id; loanId = loan.loanId; customerId = loan.customerId;
+        villageId = loan.villageId; principal = loan.principal;
+        interestRate = loan.interestRate; tenureMonths = loan.tenureMonths;
+        processingFee = loan.processingFee; emi = loan.emi;
+        totalInterest = loan.totalInterest; totalAmount = loan.totalAmount;
+        disbursedAt = loan.disbursedAt; status = #closed;
+      };
+      loans.add(loan.id, closedLoan);
+    };
     payment;
   };
 
