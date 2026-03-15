@@ -78,6 +78,7 @@ export const Payment = IDL.Record({
 
 export const idlService = IDL.Service({
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+  'addAgent' : IDL.Func([IDL.Text], [], []),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'balanceAdjustment' : IDL.Func([IDL.Nat, IDL.Text, IDL.Bool], [], []),
   'createCustomer' : IDL.Func(
@@ -93,8 +94,10 @@ export const idlService = IDL.Service({
       [Loan],
       [],
     ),
+  'getAllAgents' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
   'getAllCustomers' : IDL.Func([], [IDL.Vec(Customer)], ['query']),
   'getAllLoans' : IDL.Func([], [IDL.Vec(Loan)], ['query']),
+  'getAllPayments' : IDL.Func([], [IDL.Vec(Payment)], ['query']),
   'getAllTransactions' : IDL.Func([], [IDL.Vec(BalanceTransaction)], ['query']),
   'getAllVillages' : IDL.Func([], [IDL.Vec(Village)], ['query']),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
@@ -111,6 +114,7 @@ export const idlService = IDL.Service({
     ),
   'getVillage' : IDL.Func([IDL.Nat], [Village], ['query']),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'isPhoneAnAgent' : IDL.Func([IDL.Text], [IDL.Bool], ['query']),
   'topupLoan' : IDL.Func(
       [IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat, IDL.Nat],
       [Loan],
@@ -121,6 +125,7 @@ export const idlService = IDL.Service({
       [Payment],
       [],
     ),
+  'removeAgent' : IDL.Func([IDL.Text], [], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'updateCustomer' : IDL.Func(
       [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],
@@ -147,6 +152,7 @@ export const idlFactory = ({ IDL }) => {
     'villageId' : IDL.Nat,
     'address' : IDL.Text,
     'phone' : IDL.Text,
+    'aadharNo' : IDL.Text,
   });
   const Village = IDL.Record({
     'id' : IDL.Nat,
@@ -202,6 +208,7 @@ export const idlFactory = ({ IDL }) => {
   
   return IDL.Service({
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+    'addAgent' : IDL.Func([IDL.Text], [], []),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'balanceAdjustment' : IDL.Func([IDL.Nat, IDL.Text, IDL.Bool], [], []),
     'createCustomer' : IDL.Func(
@@ -217,8 +224,10 @@ export const idlFactory = ({ IDL }) => {
         [Loan],
         [],
       ),
+    'getAllAgents' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
     'getAllCustomers' : IDL.Func([], [IDL.Vec(Customer)], ['query']),
     'getAllLoans' : IDL.Func([], [IDL.Vec(Loan)], ['query']),
+    'getAllPayments' : IDL.Func([], [IDL.Vec(Payment)], ['query']),
     'getAllTransactions' : IDL.Func(
         [],
         [IDL.Vec(BalanceTransaction)],
@@ -230,8 +239,7 @@ export const idlFactory = ({ IDL }) => {
     'getCustomer' : IDL.Func([IDL.Nat], [Customer], ['query']),
     'getDashboardStats' : IDL.Func([], [DashboardStats], ['query']),
     'getLoansByCustomer' : IDL.Func([IDL.Nat], [IDL.Vec(Loan)], ['query']),
-    'getAllPayments' : IDL.Func([], [IDL.Vec(Payment)], ['query']),
-  'getPaymentsByLoan' : IDL.Func([IDL.Text], [IDL.Vec(Payment)], ['query']),
+    'getPaymentsByLoan' : IDL.Func([IDL.Text], [IDL.Vec(Payment)], ['query']),
     'getUserProfile' : IDL.Func(
         [IDL.Principal],
         [IDL.Opt(UserProfile)],
@@ -239,6 +247,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'getVillage' : IDL.Func([IDL.Nat], [Village], ['query']),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'isPhoneAnAgent' : IDL.Func([IDL.Text], [IDL.Bool], ['query']),
     'topupLoan' : IDL.Func(
         [IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat, IDL.Nat],
         [Loan],
@@ -249,6 +258,7 @@ export const idlFactory = ({ IDL }) => {
         [Payment],
         [],
       ),
+    'removeAgent' : IDL.Func([IDL.Text], [], []),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'updateCustomer' : IDL.Func(
         [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],

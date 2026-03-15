@@ -11,14 +11,24 @@ import type { ExtendedBackend } from "../types";
 type SelectedRole = "admin" | "staff" | "customer" | null;
 type Step = "select" | "form";
 
+// Hardcoded admin credentials for direct login
+const ADMIN_MOBILE = "9989522319";
+const ADMIN_PIN = "329506";
+
 export default function LoginPage() {
   const { login, identity, isLoggingIn } = useInternetIdentity();
   const { actor: rawActor } = useActor();
   const actor = rawActor as ExtendedBackend | null;
-  const { loginAsCustomer, loginAsStaff } = useAuth();
+  const { loginAsCustomer, loginAsStaff, loginAsAdmin } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState<SelectedRole>(null);
   const [step, setStep] = useState<Step>("select");
+
+  // Admin PIN login state
+  const [adminMobile, setAdminMobile] = useState("");
+  const [adminPin, setAdminPin] = useState("");
+  const [adminError, setAdminError] = useState("");
+  const [adminLoginMode, setAdminLoginMode] = useState<"pin" | "ii">("pin");
 
   // Staff form state
   const [staffPhone, setStaffPhone] = useState("");
@@ -39,6 +49,15 @@ export default function LoginPage() {
       loginAsStaff(staffPhone);
     }
   }, [identity, selectedRole, staffVerified, staffPhone, loginAsStaff]);
+
+  const handleAdminPinLogin = () => {
+    setAdminError("");
+    if (adminMobile.trim() === ADMIN_MOBILE && adminPin.trim() === ADMIN_PIN) {
+      loginAsAdmin();
+    } else {
+      setAdminError("Incorrect mobile number or PIN. Please try again.");
+    }
+  };
 
   const verifyStaffPhone = async () => {
     if (!actor || !staffPhone.trim()) return;
@@ -180,24 +199,112 @@ export default function LoginPage() {
           animate={{ opacity: 1, y: 0 }}
           className="w-full max-w-sm"
         >
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-indigo-400/30 text-center">
-            <div className="text-5xl mb-4">👑</div>
-            <h2 className="text-2xl font-bold text-white mb-2">Admin Login</h2>
-            <p className="text-indigo-300 text-sm mb-6">
-              Sign in with Internet Identity to access the full admin panel.
-            </p>
-            <Button
-              data-ocid="login.admin.primary_button"
-              onClick={login}
-              disabled={isLoggingIn}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3"
-            >
-              {isLoggingIn ? "Connecting..." : "Login with Internet Identity"}
-            </Button>
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-indigo-400/30">
+            <div className="text-5xl mb-4 text-center">👑</div>
+            <h2 className="text-2xl font-bold text-white mb-2 text-center">
+              Admin Login
+            </h2>
+
+            {/* Toggle between PIN and Internet Identity */}
+            <div className="flex rounded-lg overflow-hidden border border-indigo-400/30 mb-6">
+              <button
+                type="button"
+                onClick={() => setAdminLoginMode("pin")}
+                className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                  adminLoginMode === "pin"
+                    ? "bg-indigo-600 text-white"
+                    : "text-indigo-300 hover:text-white"
+                }`}
+              >
+                Mobile & PIN
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminLoginMode("ii")}
+                className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                  adminLoginMode === "ii"
+                    ? "bg-indigo-600 text-white"
+                    : "text-indigo-300 hover:text-white"
+                }`}
+              >
+                Internet Identity
+              </button>
+            </div>
+
+            {adminLoginMode === "pin" ? (
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-indigo-200 text-sm mb-1 block">
+                    Mobile Number
+                  </Label>
+                  <Input
+                    data-ocid="login.admin.mobile.input"
+                    value={adminMobile}
+                    onChange={(e) => {
+                      setAdminMobile(e.target.value);
+                      setAdminError("");
+                    }}
+                    placeholder="Enter mobile number"
+                    className="bg-white/10 border-indigo-400/40 text-white placeholder:text-white/40"
+                    type="tel"
+                  />
+                </div>
+                <div>
+                  <Label className="text-indigo-200 text-sm mb-1 block">
+                    6-Digit PIN
+                  </Label>
+                  <Input
+                    data-ocid="login.admin.pin.input"
+                    value={adminPin}
+                    onChange={(e) => {
+                      setAdminPin(e.target.value);
+                      setAdminError("");
+                    }}
+                    placeholder="Enter 6-digit PIN"
+                    className="bg-white/10 border-indigo-400/40 text-white placeholder:text-white/40"
+                    type="password"
+                    maxLength={6}
+                  />
+                  {adminError && (
+                    <p
+                      data-ocid="login.admin.error_state"
+                      className="text-red-400 text-xs mt-1"
+                    >
+                      {adminError}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  data-ocid="login.admin.pin.primary_button"
+                  onClick={handleAdminPinLogin}
+                  disabled={!adminMobile.trim() || !adminPin.trim()}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3"
+                >
+                  Login as Admin
+                </Button>
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-indigo-300 text-sm mb-6">
+                  Sign in with Internet Identity to access the admin panel.
+                </p>
+                <Button
+                  data-ocid="login.admin.primary_button"
+                  onClick={login}
+                  disabled={isLoggingIn}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3"
+                >
+                  {isLoggingIn
+                    ? "Connecting..."
+                    : "Login with Internet Identity"}
+                </Button>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={() => setStep("select")}
-              className="mt-4 text-indigo-400 text-sm hover:text-indigo-200"
+              className="mt-4 text-indigo-400 text-sm hover:text-indigo-200 w-full text-center block"
             >
               ← Back
             </button>

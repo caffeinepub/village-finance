@@ -165,6 +165,7 @@ export enum Variant_closed_active {
 }
 export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
+    addAgent(phone: string): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     balanceAdjustment(amount: bigint, description: string, isAddition: boolean): Promise<void>;
     createCustomer(name: string, phone: string, address: string, aadharNo: string, villageId: bigint, userId: Principal): Promise<Customer>;
@@ -172,7 +173,7 @@ export interface backendInterface {
     deleteCustomer(id: bigint): Promise<void>;
     deleteVillage(id: bigint): Promise<void>;
     disburseLoan(customerId: bigint, villageId: bigint, principal: bigint, interestRate: bigint, tenureMonths: bigint, processingFee: bigint): Promise<Loan>;
-    topupLoan(existingLoanId: string, topupAmount: bigint, newInterestRate: bigint, newTenure: bigint, newProcessingFee: bigint): Promise<Loan>;
+    getAllAgents(): Promise<Array<string>>;
     getAllCustomers(): Promise<Array<Customer>>;
     getAllLoans(): Promise<Array<Loan>>;
     getAllPayments(): Promise<Array<Payment>>;
@@ -187,7 +188,10 @@ export interface backendInterface {
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     getVillage(id: bigint): Promise<Village>;
     isCallerAdmin(): Promise<boolean>;
+    isPhoneAnAgent(phone: string): Promise<boolean>;
+    topupLoan(existingLoanId: string, topupAmount: bigint, newInterestRate: bigint, newTenure: bigint, newProcessingFee: bigint): Promise<Loan>;
     recordPayment(loanId: string, customerId: bigint, amountPaid: bigint, penalty: bigint, notes: string): Promise<Payment>;
+    removeAgent(phone: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     updateCustomer(id: bigint, name: string, phone: string, address: string, aadharNo: string, villageId: bigint): Promise<Customer>;
     updateVillage(id: bigint, name: string, shortCode: string): Promise<Village>;
@@ -206,6 +210,62 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor._initializeAccessControlWithSecret(arg0);
+            return result;
+        }
+    }
+    async addAgent(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).addAgent(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).addAgent(arg0);
+            return result;
+        }
+    }
+    async removeAgent(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).removeAgent(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).removeAgent(arg0);
+            return result;
+        }
+    }
+    async getAllAgents(): Promise<Array<string>> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).getAllAgents();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).getAllAgents();
+            return result;
+        }
+    }
+    async isPhoneAnAgent(arg0: string): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).isPhoneAnAgent(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).isPhoneAnAgent(arg0);
             return result;
         }
     }

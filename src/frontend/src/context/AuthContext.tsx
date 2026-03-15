@@ -9,6 +9,7 @@ import {
 import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import type { ExtendedBackend } from "../types";
+import { getSecretParameter } from "../utils/urlParams";
 
 export interface CustomerSession {
   phone: string;
@@ -25,6 +26,7 @@ interface AuthContextValue {
   isCheckingRole: boolean;
   loginAsCustomer: (session: CustomerSession) => void;
   loginAsStaff: (phone: string) => void;
+  loginAsAdmin: () => void;
   logout: () => void;
 }
 
@@ -41,8 +43,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isCheckingRole, setIsCheckingRole] = useState(true);
   const [customerLoaded, setCustomerLoaded] = useState(false);
 
-  // Load customer session from localStorage on mount
+  // Load session from localStorage on mount
   useEffect(() => {
+    // Check PIN-based admin session first
+    const adminSession = localStorage.getItem("vf_admin_session");
+    if (adminSession === "pin_authenticated") {
+      setRole("admin");
+      setIsCheckingRole(false);
+      setCustomerLoaded(true);
+      return;
+    }
+
     const stored = localStorage.getItem("vf_customer_session");
     if (stored) {
       try {
@@ -61,6 +72,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!customerLoaded) return;
     if (customerSession) return;
+    // Skip II check if already logged in via PIN
+    if (role === "admin") return;
     if (isInitializing || isFetching) return;
 
     if (!identity || !actor) {
@@ -71,18 +84,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       setIsCheckingRole(true);
       try {
-        const isAdmin = await actor.isCallerAdmin();
+        const urlToken = getSecretParameter("caffeineAdminToken") || "";
+        if (urlToken) {
+          try {
+            await actor._initializeAccessControlWithSecret(urlToken);
+          } catch {
+            // ignore
+          }
+        }
+
+        let isAdmin = false;
+        try {
+          isAdmin = await actor.isCallerAdmin();
+        } catch {
+          try {
+            await actor._initializeAccessControlWithSecret(urlToken || "");
+            isAdmin = await actor.isCallerAdmin();
+          } catch {
+            isAdmin = false;
+          }
+        }
+
         if (isAdmin) {
           setRole("admin");
         } else {
           const storedPhone = localStorage.getItem("vf_staff_phone");
           if (storedPhone) {
-            const isAgent = await actor.isPhoneAnAgent(storedPhone);
-            if (isAgent) {
-              setStaffPhone(storedPhone);
-              setRole("staff");
-            } else {
-              localStorage.removeItem("vf_staff_phone");
+            try {
+              const isAgent = await actor.isPhoneAnAgent(storedPhone);
+              if (isAgent) {
+                setStaffPhone(storedPhone);
+                setRole("staff");
+              } else {
+                localStorage.removeItem("vf_staff_phone");
+                setRole(null);
+              }
+            } catch {
               setRole(null);
             }
           } else {
@@ -102,6 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isFetching,
     customerSession,
     customerLoaded,
+    role,
   ]);
 
   const loginAsCustomer = useCallback((session: CustomerSession) => {
@@ -116,9 +154,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setRole("staff");
   }, []);
 
+  const loginAsAdmin = useCallback(() => {
+    localStorage.setItem("vf_admin_session", "pin_authenticated");
+    setRole("admin");
+  }, []);
+
   const logout = useCallback(() => {
     localStorage.removeItem("vf_customer_session");
     localStorage.removeItem("vf_staff_phone");
+    localStorage.removeItem("vf_admin_session");
     setCustomerSession(null);
     setStaffPhone(null);
     setRole(null);
@@ -134,6 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isCheckingRole,
         loginAsCustomer,
         loginAsStaff,
+        loginAsAdmin,
         logout,
       }}
     >

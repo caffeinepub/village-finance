@@ -65,6 +65,7 @@ export interface Village {
 }
 export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'addAgent' : ActorMethod<[string], undefined>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'balanceAdjustment' : ActorMethod<[bigint, string, boolean], undefined>,
   'createCustomer' : ActorMethod<[string, string, string, string, bigint, Principal], Customer>,
@@ -72,6 +73,7 @@ export interface _SERVICE {
   'deleteCustomer' : ActorMethod<[bigint], undefined>,
   'deleteVillage' : ActorMethod<[bigint], undefined>,
   'disburseLoan' : ActorMethod<[bigint, bigint, bigint, bigint, bigint, bigint], Loan>,
+  'getAllAgents' : ActorMethod<[], Array<string>>,
   'getAllCustomers' : ActorMethod<[], Array<Customer>>,
   'getAllLoans' : ActorMethod<[], Array<Loan>>,
   'getAllPayments' : ActorMethod<[], Array<Payment>>,
@@ -86,8 +88,10 @@ export interface _SERVICE {
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'getVillage' : ActorMethod<[bigint], Village>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
+  'isPhoneAnAgent' : ActorMethod<[string], boolean>,
   'topupLoan' : ActorMethod<[string, bigint, bigint, bigint, bigint], Loan>,
   'recordPayment' : ActorMethod<[string, bigint, bigint, bigint, string], Payment>,
+  'removeAgent' : ActorMethod<[string], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'updateCustomer' : ActorMethod<[bigint, string, string, string, string, bigint], Customer>,
   'updateVillage' : ActorMethod<[bigint, string, string], Village>,
