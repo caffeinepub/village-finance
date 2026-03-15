@@ -34,7 +34,6 @@ export default function Customers() {
     phone: "",
     address: "",
     villageId: "",
-    userId: "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -54,7 +53,7 @@ export default function Customers() {
 
   const openAdd = () => {
     setEdit(null);
-    setForm({ name: "", phone: "", address: "", villageId: "", userId: "" });
+    setForm({ name: "", phone: "", address: "", villageId: "" });
     setOpen(true);
   };
   const openEdit = (c: Customer) => {
@@ -64,7 +63,6 @@ export default function Customers() {
       phone: c.phone,
       address: c.address,
       villageId: c.villageId.toString(),
-      userId: c.userId.toString(),
     });
     setOpen(true);
   };
@@ -82,13 +80,13 @@ export default function Customers() {
           BigInt(form.villageId),
         );
       } else {
-        const principal = Principal.fromText(form.userId);
+        // Use anonymous principal for admin-created customers
         await actor.createCustomer(
           form.name,
           form.phone,
           form.address,
           BigInt(form.villageId),
-          principal,
+          Principal.anonymous(),
         );
       }
       setOpen(false);
@@ -265,19 +263,6 @@ export default function Customers() {
                 </SelectContent>
               </Select>
             </div>
-            {!edit && (
-              <div>
-                <Label>User Principal ID</Label>
-                <Input
-                  data-ocid="customers.userid.input"
-                  value={form.userId}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, userId: e.target.value }))
-                  }
-                  placeholder="Principal ID"
-                />
-              </div>
-            )}
           </div>
           <DialogFooter>
             <Button
@@ -290,7 +275,7 @@ export default function Customers() {
             <Button
               data-ocid="customers.save.save_button"
               onClick={save}
-              disabled={saving}
+              disabled={saving || !form.name || !form.villageId}
             >
               {saving ? "Saving..." : "Save"}
             </Button>
