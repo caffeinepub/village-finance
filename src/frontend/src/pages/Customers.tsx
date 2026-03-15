@@ -278,7 +278,7 @@ export default function Customers() {
       actor.getAllCustomers(),
       actor.getAllVillages(),
       actor.getAllLoans(),
-      (actor as any).getAllPayments(),
+      actor.getAllPayments(),
     ])
       .then(([c, v, loans, payments]) => {
         setCustomers(Array.isArray(c) ? c : []);
@@ -288,6 +288,10 @@ export default function Customers() {
       })
       .catch((err) => {
         console.error("Failed to load data:", err);
+        setCustomers([]);
+        setVillages([]);
+        setAllLoans([]);
+        setAllPayments([]);
       })
       .finally(() => setLoading(false));
   }, [actor]);
@@ -298,19 +302,34 @@ export default function Customers() {
 
   // Compute remaining outstanding across all active loans for a customer
   const getLoanStats = (customerId: bigint) => {
-    const loans = allLoans.filter((l) => l.customerId === customerId);
-    const totalLoans = loans.length;
-    const activeLoans = loans.filter(
-      (l) => l.status === Variant_closed_active.active,
-    );
-    const remainingOutstanding = activeLoans.reduce((sum, loan) => {
-      const paid = allPayments
-        .filter((p) => p.loanId === loan.loanId)
-        .reduce((s, p) => s + p.amountPaid + p.penalty, 0n);
-      const remaining = loan.totalAmount - paid;
-      return sum + (remaining > 0n ? remaining : 0n);
-    }, 0n);
-    return { totalLoans, remainingOutstanding };
+    try {
+      const loans = allLoans.filter((l) => l.customerId === customerId);
+      const totalLoans = loans.length;
+      const activeLoans = loans.filter(
+        (l) => l.status === Variant_closed_active.active,
+      );
+      const remainingOutstanding = activeLoans.reduce((sum, loan) => {
+        try {
+          const totalAmount = BigInt(loan.totalAmount ?? 0);
+          const paid = allPayments
+            .filter((p) => p.loanId === loan.loanId)
+            .reduce((s, p) => {
+              try {
+                return s + BigInt(p.amountPaid ?? 0) + BigInt(p.penalty ?? 0);
+              } catch {
+                return s;
+              }
+            }, 0n);
+          const remaining = totalAmount - paid;
+          return sum + (remaining > 0n ? remaining : 0n);
+        } catch {
+          return sum;
+        }
+      }, 0n);
+      return { totalLoans, remainingOutstanding };
+    } catch {
+      return { totalLoans: 0, remainingOutstanding: 0n };
+    }
   };
 
   const openAdd = () => {

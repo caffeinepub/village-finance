@@ -110,4 +110,14 @@ export interface backendInterface {
     updateCustomer(id: bigint, name: string, phone: string, address: string, aadharNo: string, villageId: bigint): Promise<CustomerFull>;
     updateVillage(id: bigint, name: string, shortCode: string): Promise<Village>;
     _initializeAccessControlWithSecret(secret: string): Promise<void>;
+    // Agent management
+    addAgent(phone: string): Promise<void>;
+    removeAgent(phone: string): Promise<void>;
+    getAllAgents(): Promise<Array<string>>;
+    isPhoneAnAgent(phone: string): Promise<boolean>;
+    // Customer self-service
+    getCustomerByPhone(phone: string): Promise<CustomerFull | null>;
+    getLoansByPhone(phone: string): Promise<Array<Loan>>;
+    getPaymentsByPhone(phone: string): Promise<Array<Payment>>;
+    verifyCustomerLoanAccess(phone: string, loanId: string): Promise<boolean>;
 }

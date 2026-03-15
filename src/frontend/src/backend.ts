@@ -175,6 +175,7 @@ export interface backendInterface {
     topupLoan(existingLoanId: string, topupAmount: bigint, newInterestRate: bigint, newTenure: bigint, newProcessingFee: bigint): Promise<Loan>;
     getAllCustomers(): Promise<Array<Customer>>;
     getAllLoans(): Promise<Array<Loan>>;
+    getAllPayments(): Promise<Array<Payment>>;
     getAllTransactions(): Promise<Array<BalanceTransaction>>;
     getAllVillages(): Promise<Array<Village>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
@@ -457,6 +458,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.getPaymentsByLoan(arg0);
+            return result;
+        }
+    }
+    async getAllPayments(): Promise<Array<Payment>> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).getAllPayments();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).getAllPayments();
             return result;
         }
     }

@@ -1,18 +1,60 @@
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Button } from "./components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useActor } from "./hooks/useActor";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
+import AgentsTab from "./pages/AgentsTab";
+import CustomerPortal from "./pages/CustomerPortal";
 import Customers from "./pages/Customers";
 import Dashboard from "./pages/Dashboard";
 import Ledger from "./pages/Ledger";
 import Loans from "./pages/Loans";
+import LoginPage from "./pages/LoginPage";
+import StaffPanel from "./pages/StaffPanel";
 import Villages from "./pages/Villages";
 
-export default function App() {
-  const { identity, login, clear, isInitializing } = useInternetIdentity();
+class TabErrorBoundary extends React.Component<
+  { children: React.ReactNode; tabId: string },
+  { hasError: boolean; error: string }
+> {
+  constructor(props: { children: React.ReactNode; tabId: string }) {
+    super(props);
+    this.state = { hasError: false, error: "" };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error: error.message };
+  }
+  componentDidCatch(error: Error) {
+    console.error("Tab error:", error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="text-center py-20" data-ocid="tab.error_state">
+          <div className="text-red-500 text-lg font-semibold mb-2">
+            Something went wrong loading this tab.
+          </div>
+          <div className="text-gray-500 text-sm mb-4">{this.state.error}</div>
+          <button
+            type="button"
+            onClick={() => this.setState({ hasError: false, error: "" })}
+            className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AdminPanel() {
+  const { logout } = useAuth();
   const { actor, isFetching } = useActor();
+  const { identity, isInitializing } = useInternetIdentity();
   const [activeTab, setActiveTab] = useState("dashboard");
   const [isReady, setIsReady] = useState(false);
   const [isSettingUp, setIsSettingUp] = useState(false);
@@ -26,7 +68,7 @@ export default function App() {
       try {
         await actor._initializeAccessControlWithSecret("init");
       } catch {
-        // ignore errors here
+        // ignore
       }
     }
     setIsReady(true);
@@ -47,6 +89,7 @@ export default function App() {
     { id: "customers", label: "Customers" },
     { id: "loans", label: "Loans" },
     { id: "ledger", label: "Ledger" },
+    { id: "agents", label: "Agents" },
   ];
 
   if (isInitializing || (identity && (isFetching || isSettingUp))) {
@@ -61,30 +104,6 @@ export default function App() {
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading...
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!identity) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-indigo-700">
-        <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-md w-full mx-4 text-center">
-          <div className="text-6xl mb-4">🏦</div>
-          <h1 className="text-3xl font-bold text-indigo-700 mb-2">
-            Village Finance
-          </h1>
-          <p className="text-gray-500 mb-6">
-            Lending management for your village business. Track loans, payments,
-            and customers all in one place.
-          </p>
-          <Button
-            data-ocid="login.primary_button"
-            onClick={login}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 text-lg"
-          >
-            Login with Internet Identity
-          </Button>
         </div>
       </div>
     );
@@ -122,7 +141,7 @@ export default function App() {
             data-ocid="nav.logout_button"
             variant="ghost"
             className="text-white hover:bg-white/20"
-            onClick={clear}
+            onClick={logout}
           >
             Logout
           </Button>
@@ -149,12 +168,72 @@ export default function App() {
       </div>
 
       <main className="max-w-7xl mx-auto px-4 py-6">
-        {activeTab === "dashboard" && <Dashboard onNavigate={setActiveTab} />}
-        {activeTab === "villages" && <Villages />}
-        {activeTab === "customers" && <Customers />}
-        {activeTab === "loans" && <Loans />}
-        {activeTab === "ledger" && <Ledger />}
+        {activeTab === "dashboard" && (
+          <TabErrorBoundary key="dashboard" tabId="dashboard">
+            <Dashboard onNavigate={setActiveTab} />
+          </TabErrorBoundary>
+        )}
+        {activeTab === "villages" && (
+          <TabErrorBoundary key="villages" tabId="villages">
+            <Villages />
+          </TabErrorBoundary>
+        )}
+        {activeTab === "customers" && (
+          <TabErrorBoundary key="customers" tabId="customers">
+            <Customers />
+          </TabErrorBoundary>
+        )}
+        {activeTab === "loans" && (
+          <TabErrorBoundary key="loans" tabId="loans">
+            <Loans />
+          </TabErrorBoundary>
+        )}
+        {activeTab === "ledger" && (
+          <TabErrorBoundary key="ledger" tabId="ledger">
+            <Ledger />
+          </TabErrorBoundary>
+        )}
+        {activeTab === "agents" && (
+          <TabErrorBoundary key="agents" tabId="agents">
+            <AgentsTab />
+          </TabErrorBoundary>
+        )}
       </main>
     </div>
+  );
+}
+
+function AppContent() {
+  const { role, isCheckingRole } = useAuth();
+  const { isInitializing } = useInternetIdentity();
+
+  if (isInitializing || isCheckingRole) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
+        <div className="text-center">
+          <div className="text-5xl mb-4">🏦</div>
+          <div className="text-xl font-semibold text-white mb-2">
+            Village Finance
+          </div>
+          <div className="flex items-center justify-center gap-2 text-indigo-300">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (role === "admin") return <AdminPanel />;
+  if (role === "staff") return <StaffPanel />;
+  if (role === "customer") return <CustomerPortal />;
+  return <LoginPage />;
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

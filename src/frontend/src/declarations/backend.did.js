@@ -102,6 +102,7 @@ export const idlService = IDL.Service({
   'getCustomer' : IDL.Func([IDL.Nat], [Customer], ['query']),
   'getDashboardStats' : IDL.Func([], [DashboardStats], ['query']),
   'getLoansByCustomer' : IDL.Func([IDL.Nat], [IDL.Vec(Loan)], ['query']),
+  'getAllPayments' : IDL.Func([], [IDL.Vec(Payment)], ['query']),
   'getPaymentsByLoan' : IDL.Func([IDL.Text], [IDL.Vec(Payment)], ['query']),
   'getUserProfile' : IDL.Func(
       [IDL.Principal],
@@ -229,7 +230,8 @@ export const idlFactory = ({ IDL }) => {
     'getCustomer' : IDL.Func([IDL.Nat], [Customer], ['query']),
     'getDashboardStats' : IDL.Func([], [DashboardStats], ['query']),
     'getLoansByCustomer' : IDL.Func([IDL.Nat], [IDL.Vec(Loan)], ['query']),
-    'getPaymentsByLoan' : IDL.Func([IDL.Text], [IDL.Vec(Payment)], ['query']),
+    'getAllPayments' : IDL.Func([], [IDL.Vec(Payment)], ['query']),
+  'getPaymentsByLoan' : IDL.Func([IDL.Text], [IDL.Vec(Payment)], ['query']),
     'getUserProfile' : IDL.Func(
         [IDL.Principal],
         [IDL.Opt(UserProfile)],

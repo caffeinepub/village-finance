@@ -4,6 +4,7 @@ import Runtime "mo:core/Runtime";
 import Time "mo:core/Time";
 import Nat "mo:core/Nat";
 import Int "mo:core/Int";
+import Text "mo:core/Text";
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
 
@@ -15,7 +16,6 @@ actor {
     createdAt : Time.Time;
   };
 
-  // Stable storage type -- kept unchanged for upgrade compatibility
   public type Customer = {
     id : Nat;
     name : Text;
@@ -26,7 +26,6 @@ actor {
     createdAt : Time.Time;
   };
 
-  // Extended type returned by all customer APIs -- includes aadharNo
   public type CustomerFull = {
     id : Nat;
     name : Text;
@@ -86,12 +85,12 @@ actor {
 
   let villages = Map.empty<Nat, Village>();
   let customers = Map.empty<Nat, Customer>();
-  // Separate map for Aadhar numbers -- avoids breaking the stable Customer type
   let customerAadharMap = Map.empty<Nat, Text>();
   let loans = Map.empty<Nat, Loan>();
   let payments = Map.empty<Nat, Payment>();
   let transactions = Map.empty<Nat, BalanceTransaction>();
   let userProfiles = Map.empty<Principal, UserProfile>();
+  let agentPhones = Map.empty<Text, Bool>();
 
   var villageIdCounter = 1;
   var customerIdCounter = 1;
@@ -111,7 +110,6 @@ actor {
     if (a >= b) a - b else 0;
   };
 
-  // Round up to next multiple of 1000 paise (next Rs.10)
   func roundUpToTen(paise : Nat) : Nat {
     ((paise + 999) / 1000) * 1000;
   };
@@ -124,7 +122,6 @@ actor {
     { id = c.id; name = c.name; phone = c.phone; address = c.address; aadharNo; villageId = c.villageId; userId = c.userId; createdAt = c.createdAt };
   };
 
-  // Returns true if the phone is already used by another customer (excludes excludeId)
   func phoneExists(phone : Text, excludeId : ?Nat) : Bool {
     var found = false;
     for ((_, c) in customers.entries()) {
@@ -139,9 +136,17 @@ actor {
     found;
   };
 
-  func makeLoanId(shortCode : Text, counter : Nat) : Text {
-    let nowNs = Time.now();
-    let nowSec = Int.abs(nowNs) / 1_000_000_000;
+  func textTake(s : Text, n : Nat) : Text {
+    var result = "";
+    var i = 0;
+    for (c in s.chars()) {
+      if (i < n) { result #= Text.fromChar(c); i += 1 };
+    };
+    result;
+  };
+
+  func yearMonthFromNs(ns : Int) : (Nat, Nat) {
+    let nowSec = Int.abs(ns) / 1_000_000_000;
     let daysSinceEpoch = nowSec / 86400;
     let y400 = 146097;
     let y100 = 36524;
@@ -163,14 +168,98 @@ actor {
     for (md in monthDays.vals()) {
       if (rem >= md) { rem := safeSub(rem, md); month += 1 } else {};
     };
-    let day = rem + 1;
-    let yy = pad2(year % 100);
-    let mm = pad2(month);
-    let dd = pad2(day);
-    let seq = pad2(counter % 100);
-    shortCode # yy # mm # dd # seq;
+    (year, month);
   };
 
+  func makeLoanId(shortCode : Text) : Text {
+    let now = Time.now();
+    let (year, month) = yearMonthFromNs(now);
+    let yy = pad2(year % 100);
+    let mm = pad2(month);
+    let prefix = shortCode # yy # mm;
+    let prefixLen = prefix.size();
+    var serial = 1;
+    for ((_, l) in loans.entries()) {
+      if (l.loanId.size() >= prefixLen and textTake(l.loanId, prefixLen) == prefix) {
+        serial += 1;
+      };
+    };
+    prefix # pad2(serial);
+  };
+
+  // Agent management
+  public shared ({ caller }) func addAgent(phone : Text) : async () {
+    if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
+    agentPhones.add(phone, true);
+  };
+
+  public shared ({ caller }) func removeAgent(phone : Text) : async () {
+    if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
+    agentPhones.remove(phone);
+  };
+
+  public query ({ caller }) func getAllAgents() : async [Text] {
+    if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
+    agentPhones.keys().toArray();
+  };
+
+  public query func isPhoneAnAgent(phone : Text) : async Bool {
+    agentPhones.containsKey(phone);
+  };
+
+  // Customer self-service
+  public query func getCustomerByPhone(phone : Text) : async ?CustomerFull {
+    var found : ?CustomerFull = null;
+    for ((_, c) in customers.entries()) {
+      if (c.phone == phone) { found := ?toFull(c) };
+    };
+    found;
+  };
+
+  public query func getLoansByPhone(phone : Text) : async [Loan] {
+    var custId : ?Nat = null;
+    for ((_, c) in customers.entries()) {
+      if (c.phone == phone) { custId := ?c.id };
+    };
+    switch (custId) {
+      case (null) { [] };
+      case (?cid) {
+        loans.values().toArray().filter(func(l : Loan) : Bool { l.customerId == cid });
+      };
+    };
+  };
+
+  public query func getPaymentsByPhone(phone : Text) : async [Payment] {
+    var custId : ?Nat = null;
+    for ((_, c) in customers.entries()) {
+      if (c.phone == phone) { custId := ?c.id };
+    };
+    switch (custId) {
+      case (null) { [] };
+      case (?cid) {
+        payments.values().toArray().filter(func(p : Payment) : Bool { p.customerId == cid });
+      };
+    };
+  };
+
+  public query func verifyCustomerLoanAccess(phone : Text, loanId : Text) : async Bool {
+    var custId : ?Nat = null;
+    for ((_, c) in customers.entries()) {
+      if (c.phone == phone) { custId := ?c.id };
+    };
+    switch (custId) {
+      case (null) { false };
+      case (?cid) {
+        var found = false;
+        for ((_, l) in loans.entries()) {
+          if (l.loanId == loanId and l.customerId == cid) { found := true };
+        };
+        found;
+      };
+    };
+  };
+
+  // User profile
   public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
     userProfiles.get(caller);
   };
@@ -183,6 +272,7 @@ actor {
     userProfiles.add(caller, profile);
   };
 
+  // Villages
   public shared ({ caller }) func createVillage(name : Text, shortCode : Text) : async Village {
     if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
     let village : Village = { id = villageIdCounter; name; shortCode; createdAt = Time.now() };
@@ -218,6 +308,7 @@ actor {
     villages.remove(id);
   };
 
+  // Customers
   public shared ({ caller }) func createCustomer(name : Text, phone : Text, address : Text, aadharNo : Text, villageId : Nat, userId : Principal) : async CustomerFull {
     if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
     if (phone != "" and phoneExists(phone, null)) {
@@ -263,8 +354,10 @@ actor {
     customerAadharMap.remove(id);
   };
 
+  // Loans
   public shared ({ caller }) func disburseLoan(customerId : Nat, villageId : Nat, principal : Nat, interestRate : Nat, tenureMonths : Nat, processingFee : Nat) : async Loan {
     if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
+    if (balanceInHand < principal) { Runtime.trap("Insufficient balance in hand to disburse this loan") };
     let totalInterest = (principal * interestRate * tenureMonths) / 10000;
     let emiBase = principal + totalInterest;
     let totalAmount = emiBase + processingFee;
@@ -274,41 +367,34 @@ actor {
       case (null) { "VIL" };
       case (?v) { v.shortCode };
     };
-    let loanId = makeLoanId(shortCode, loanIdCounter);
+    let loanId = makeLoanId(shortCode);
     let loan : Loan = { id = loanIdCounter; loanId; customerId; villageId; principal; interestRate; tenureMonths; processingFee; emi; totalInterest; totalAmount; disbursedAt = Time.now(); status = #active };
     loans.add(loanIdCounter, loan);
     loanIdCounter += 1;
     let txn : BalanceTransaction = { id = transactionIdCounter; type_ = #disbursal; amount = principal; description = "Loan disbursement: " # loanId; date = Time.now(); referenceId = loanId };
     transactions.add(transactionIdCounter, txn);
     transactionIdCounter += 1;
-    if (balanceInHand < principal) { Runtime.trap("Insufficient balance in hand to disburse this loan") };
     balanceInHand := safeSub(balanceInHand, principal);
     loan;
   };
 
-  // Top-up: close existing loan, create new loan with outstanding principal + foreclosure (2%) + topup amount
   public shared ({ caller }) func topupLoan(existingLoanId : Text, topupAmount : Nat, newInterestRate : Nat, newTenure : Nat, newProcessingFee : Nat) : async Loan {
     if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
-    // Find existing loan
     var foundLoan : ?Loan = null;
     for ((_, l) in loans.entries()) {
       if (l.loanId == existingLoanId) { foundLoan := ?l };
     };
     let oldLoan = switch (foundLoan) { case (null) { Runtime.trap("Loan not found") }; case (?l) { l } };
     if (oldLoan.status == #closed) { Runtime.trap("Loan is already closed") };
-    // Calculate total paid so far
     var totalPaid : Nat = 0;
     for ((_, p) in payments.entries()) {
       if (p.loanId == existingLoanId) { totalPaid += p.amountPaid + p.penalty };
     };
-    // Outstanding calculations
     let outstandingTotal = safeSub(oldLoan.totalAmount, totalPaid);
     let outstandingPrincipal = if (oldLoan.totalAmount > 0) (oldLoan.principal * outstandingTotal) / oldLoan.totalAmount else 0;
-    // Foreclosure charges = 2% of outstanding principal
     let foreclosureCharges = (outstandingPrincipal * 200) / 10000;
-    // New principal
     let newPrincipal = outstandingPrincipal + foreclosureCharges + topupAmount;
-    // Close old loan
+    if (balanceInHand < topupAmount) { Runtime.trap("Insufficient balance in hand to disburse top-up amount") };
     let closedLoan : Loan = {
       id = oldLoan.id; loanId = oldLoan.loanId; customerId = oldLoan.customerId;
       villageId = oldLoan.villageId; principal = oldLoan.principal;
@@ -318,7 +404,6 @@ actor {
       disbursedAt = oldLoan.disbursedAt; status = #closed;
     };
     loans.add(oldLoan.id, closedLoan);
-    // Create new loan
     let totalInterest = (newPrincipal * newInterestRate * newTenure) / 10000;
     let emiBase = newPrincipal + totalInterest;
     let emiRaw = if (newTenure > 0) emiBase / newTenure else emiBase;
@@ -327,7 +412,7 @@ actor {
       case (null) { "VIL" };
       case (?v) { v.shortCode };
     };
-    let newLoanId = makeLoanId(shortCode, loanIdCounter);
+    let newLoanId = makeLoanId(shortCode);
     let newLoan : Loan = {
       id = loanIdCounter; loanId = newLoanId; customerId = oldLoan.customerId;
       villageId = oldLoan.villageId; principal = newPrincipal;
@@ -337,11 +422,9 @@ actor {
     };
     loans.add(loanIdCounter, newLoan);
     loanIdCounter += 1;
-    // Record transaction for topup disbursal
     let txn : BalanceTransaction = { id = transactionIdCounter; type_ = #disbursal; amount = topupAmount; description = "Top-up loan: " # newLoanId # " (closed: " # existingLoanId # ")"; date = Time.now(); referenceId = newLoanId };
     transactions.add(transactionIdCounter, txn);
     transactionIdCounter += 1;
-    if (balanceInHand < topupAmount) { Runtime.trap("Insufficient balance in hand to disburse top-up amount") };
     balanceInHand := safeSub(balanceInHand, topupAmount);
     newLoan;
   };
@@ -356,6 +439,7 @@ actor {
     loans.values().toArray().filter(func(l : Loan) : Bool { l.customerId == customerId });
   };
 
+  // Payments
   public shared ({ caller }) func recordPayment(loanId : Text, customerId : Nat, amountPaid : Nat, penalty : Nat, notes : Text) : async Payment {
     if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
     var foundLoan : ?Loan = null;
@@ -367,7 +451,6 @@ actor {
     for ((_, p) in payments.entries()) {
       if (p.loanId == loanId) { totalPaidSoFar += p.amountPaid + p.penalty };
     };
-    // Cap amountPaid so total collected never exceeds totalAmount (last EMI adjustment)
     let remainingAfterPenalty = safeSub(loan.totalAmount, totalPaidSoFar + penalty);
     let effectiveAmountPaid = if (amountPaid > remainingAfterPenalty) remainingAfterPenalty else amountPaid;
     let totalPaidAfter = totalPaidSoFar + effectiveAmountPaid + penalty;
@@ -391,7 +474,6 @@ actor {
     transactions.add(transactionIdCounter, txn);
     transactionIdCounter += 1;
     balanceInHand += (effectiveAmountPaid + penalty);
-    // Auto-close the loan if the full outstanding amount has been received
     if (outstandingTotal == 0) {
       let closedLoan : Loan = {
         id = loan.id; loanId = loan.loanId; customerId = loan.customerId;
@@ -416,6 +498,7 @@ actor {
     payments.values().toArray();
   };
 
+  // Balance
   public shared ({ caller }) func balanceAdjustment(amount : Nat, description : Text, isAddition : Bool) : async () {
     if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
     let txn : BalanceTransaction = { id = transactionIdCounter; type_ = #adjustment; amount; description; date = Time.now(); referenceId = "ADJ" # transactionIdCounter.toText() };
