@@ -1,15 +1,10 @@
-import { Loader2, ShieldCheck } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
-import { UserRole } from "./backend";
 import { Button } from "./components/ui/button";
-import { Input } from "./components/ui/input";
-import { Label } from "./components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { useActor } from "./hooks/useActor";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
 import Calendar from "./pages/Calendar";
-import CustomerPortal from "./pages/CustomerPortal";
 import Customers from "./pages/Customers";
 import Dashboard from "./pages/Dashboard";
 import Ledger from "./pages/Ledger";
@@ -20,48 +15,47 @@ import Villages from "./pages/Villages";
 export default function App() {
   const { identity, login, clear, isInitializing } = useInternetIdentity();
   const { actor, isFetching } = useActor();
-  const [role, setRole] = useState<UserRole | null>(null);
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
-  const [adminToken, setAdminToken] = useState("");
-  const [isRegistering, setIsRegistering] = useState(false);
+  const [_isReady, setIsReady] = useState(false);
+  const [isSettingUp, setIsSettingUp] = useState(false);
 
-  const fetchRole = useCallback(async () => {
+  const setupUser = useCallback(async () => {
     if (!actor) return;
+    setIsSettingUp(true);
     try {
-      const r = await actor.getCallerUserRole();
-      setRole(r);
-      setIsRegistered(true);
+      // Try to get role; if not registered, register automatically
+      await actor.getCallerUserRole();
     } catch {
-      setIsRegistered(false);
-      setRole(null);
+      try {
+        // Register with empty token (regular user) - UI always shows admin panel
+        await (actor as any)._initializeAccessControlWithSecret("");
+      } catch {
+        // ignore
+      }
     }
+    setIsReady(true);
+    setIsSettingUp(false);
   }, [actor]);
 
   useEffect(() => {
     if (actor && identity) {
-      fetchRole();
+      setupUser();
     } else if (!identity) {
-      setRole(null);
-      setIsRegistered(null);
+      setIsReady(false);
     }
-  }, [actor, identity, fetchRole]);
+  }, [actor, identity, setupUser]);
 
-  const handleRegister = async () => {
-    if (!actor) return;
-    setIsRegistering(true);
-    try {
-      await (actor as any)._initializeAccessControlWithSecret(adminToken);
-      await fetchRole();
-      toast.success("Registration successful!");
-    } catch (err: any) {
-      toast.error(err?.message ?? "Registration failed. Please try again.");
-    } finally {
-      setIsRegistering(false);
-    }
-  };
+  const tabs = [
+    { id: "dashboard", label: "Dashboard" },
+    { id: "villages", label: "Villages" },
+    { id: "customers", label: "Customers" },
+    { id: "loans", label: "Loans" },
+    { id: "payments", label: "Payments" },
+    { id: "calendar", label: "Calendar" },
+    { id: "ledger", label: "Ledger" },
+  ];
 
-  if (isInitializing || (identity && isFetching)) {
+  if (isInitializing || (identity && (isFetching || isSettingUp))) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
         <div className="text-center">
@@ -69,7 +63,10 @@ export default function App() {
           <div className="text-xl font-semibold text-indigo-700">
             Village Finance
           </div>
-          <div className="text-gray-500 mt-2">Loading...</div>
+          <div className="flex items-center justify-center gap-2 text-gray-500 mt-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading...
+          </div>
         </div>
       </div>
     );
@@ -99,107 +96,6 @@ export default function App() {
     );
   }
 
-  // Registration screen for unregistered users
-  if (isRegistered === false) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-indigo-700">
-        <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-md w-full mx-4">
-          <div className="text-center mb-8">
-            <div className="text-6xl mb-4">🏦</div>
-            <h1 className="text-3xl font-bold text-indigo-700 mb-2">
-              Village Finance
-            </h1>
-            <p className="text-gray-500">
-              Complete your registration to get started.
-            </p>
-          </div>
-
-          <div className="space-y-5">
-            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3">
-              <ShieldCheck
-                className="text-indigo-500 mt-0.5 shrink-0"
-                size={20}
-              />
-              <p className="text-sm text-indigo-700">
-                If you are the <strong>admin</strong>, enter your admin secret
-                token below. Otherwise, leave it blank to register as a
-                staff/customer user.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label
-                htmlFor="admin-token"
-                className="text-gray-700 font-medium"
-              >
-                Admin Secret Token{" "}
-                <span className="text-gray-400 font-normal">(optional)</span>
-              </Label>
-              <Input
-                id="admin-token"
-                data-ocid="register.input"
-                type="password"
-                placeholder="Enter admin token (leave blank for staff/user)"
-                value={adminToken}
-                onChange={(e) => setAdminToken(e.target.value)}
-                disabled={isRegistering}
-                className="border-gray-300 focus:border-indigo-400"
-              />
-            </div>
-
-            <Button
-              data-ocid="register.submit_button"
-              onClick={handleRegister}
-              disabled={isRegistering}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 text-base"
-            >
-              {isRegistering ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Registering...
-                </>
-              ) : adminToken ? (
-                "Register as Admin"
-              ) : (
-                "Register"
-              )}
-            </Button>
-
-            <Button
-              data-ocid="register.cancel_button"
-              variant="ghost"
-              onClick={clear}
-              disabled={isRegistering}
-              className="w-full text-gray-500 hover:text-gray-700"
-            >
-              Cancel & Logout
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const isAdmin = role === UserRole.admin;
-
-  const adminTabs = [
-    { id: "dashboard", label: "Dashboard" },
-    { id: "villages", label: "Villages" },
-    { id: "customers", label: "Customers" },
-    { id: "loans", label: "Loans" },
-    { id: "payments", label: "Payments" },
-    { id: "calendar", label: "Calendar" },
-    { id: "ledger", label: "Ledger" },
-  ];
-
-  const customerTabs = [
-    { id: "my-loans", label: "My Loans" },
-    { id: "profile", label: "Profile" },
-  ];
-
-  const tabs = isAdmin ? adminTabs : customerTabs;
-  const defaultTab = isAdmin ? "dashboard" : "my-loans";
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -208,11 +104,9 @@ export default function App() {
           <div className="flex items-center gap-3">
             <span className="text-2xl">🏦</span>
             <span className="text-xl font-bold">Village Finance</span>
-            {role && (
-              <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
-                {role === UserRole.admin ? "Admin" : "Customer"}
-              </span>
-            )}
+            <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
+              Admin
+            </span>
           </div>
           <Button
             data-ocid="nav.logout_button"
@@ -228,7 +122,7 @@ export default function App() {
       {/* Navigation */}
       <div className="bg-white border-b shadow-sm sticky top-0 z-10 overflow-x-auto">
         <div className="max-w-7xl mx-auto px-4">
-          <Tabs value={activeTab || defaultTab} onValueChange={setActiveTab}>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="h-12 bg-transparent gap-1">
               {tabs.map((tab) => (
                 <TabsTrigger
@@ -247,21 +141,15 @@ export default function App() {
 
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 py-6">
-        {isAdmin ? (
-          <>
-            {(activeTab === "dashboard" || !activeTab) && (
-              <Dashboard onNavigate={setActiveTab} />
-            )}
-            {activeTab === "villages" && <Villages />}
-            {activeTab === "customers" && <Customers />}
-            {activeTab === "loans" && <Loans />}
-            {activeTab === "payments" && <Payments />}
-            {activeTab === "calendar" && <Calendar />}
-            {activeTab === "ledger" && <Ledger />}
-          </>
-        ) : (
-          <CustomerPortal activeTab={activeTab} />
+        {(activeTab === "dashboard" || !activeTab) && (
+          <Dashboard onNavigate={setActiveTab} />
         )}
+        {activeTab === "villages" && <Villages />}
+        {activeTab === "customers" && <Customers />}
+        {activeTab === "loans" && <Loans />}
+        {activeTab === "payments" && <Payments />}
+        {activeTab === "calendar" && <Calendar />}
+        {activeTab === "ledger" && <Ledger />}
       </main>
     </div>
   );
