@@ -1,7 +1,7 @@
 import { Principal } from "@icp-sdk/core/principal";
 import { FileText, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Loan, Village } from "../backend";
+import type { Loan, Payment, Village } from "../backend";
 import { Variant_closed_active } from "../backend";
 import {
   AlertDialog,
@@ -34,7 +34,8 @@ import {
 } from "../components/ui/select";
 import { useActor } from "../hooks/useActor";
 import type { CustomerFull } from "../types";
-import { formatDate, formatRupees } from "../utils/format";
+import { captureElementAsBlob } from "../utils/captureReceipt";
+import { formatDate, formatRupees, rupeeInputToPaise } from "../utils/format";
 
 interface UploadedDoc {
   name: string;
@@ -50,13 +51,173 @@ function maskAadhar(aadhar: string): string {
   return `XXXX-XXXX-${last4}`;
 }
 
+function ReceiptCard({
+  payment,
+  customerName,
+  loanId,
+  receiptRef,
+}: {
+  payment: Payment;
+  customerName: string;
+  loanId: string;
+  receiptRef?: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div
+      ref={receiptRef}
+      className="bg-white border-2 border-teal-200 rounded-xl p-5"
+    >
+      <div className="text-center border-b border-gray-200 pb-3 mb-4">
+        <div className="text-2xl">🏦</div>
+        <div className="font-bold text-teal-700 text-lg">Village Finance</div>
+        <div className="text-xs text-gray-500">Payment Receipt</div>
+        <div className="text-xs text-gray-400 mt-1">#{payment.receiptNo}</div>
+      </div>
+      <div className="space-y-2 text-sm">
+        <RRow label="Receipt No" value={payment.receiptNo} />
+        <RRow label="Date" value={formatDate(payment.paymentDate)} />
+        <RRow label="Customer" value={customerName} />
+        <RRow label="Loan ID" value={loanId} />
+        <div className="border-t pt-2 mt-2 space-y-2">
+          <RRow
+            label="Amount Paid"
+            value={formatRupees(payment.amountPaid)}
+            bold
+          />
+          {payment.penalty > 0n && (
+            <RRow label="Penalty" value={formatRupees(payment.penalty)} />
+          )}
+          <RRow
+            label="Outstanding Principal"
+            value={formatRupees(payment.outstandingPrincipal)}
+          />
+          <RRow
+            label="Total Outstanding"
+            value={formatRupees(payment.totalOutstanding)}
+            bold
+          />
+        </div>
+        {payment.notes && (
+          <div className="border-t pt-2 mt-2">
+            <RRow label="Notes" value={payment.notes} />
+          </div>
+        )}
+      </div>
+      <div className="text-center mt-4 pt-3 border-t border-gray-100">
+        <div className="text-xs text-gray-400">Thank you for your payment</div>
+      </div>
+    </div>
+  );
+}
+
+function RRow({
+  label,
+  value,
+  bold,
+}: { label: string; value: string; bold?: boolean }) {
+  return (
+    <div className="flex justify-between gap-2">
+      <span className="text-gray-500 shrink-0">{label}:</span>
+      <span
+        className={`text-right ${bold ? "font-bold text-teal-800" : "font-medium"}`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function buildPaymentSMSText(
+  payment: Payment,
+  customerName: string,
+  loanId: string,
+): string {
+  return [
+    "Village Finance Payment Receipt",
+    `Receipt: ${payment.receiptNo}`,
+    `Date: ${formatDate(payment.paymentDate)}`,
+    `Customer: ${customerName}`,
+    `Loan ID: ${loanId}`,
+    `Amount Paid: ${formatRupees(payment.amountPaid)}`,
+    payment.penalty > 0n ? `Penalty: ${formatRupees(payment.penalty)}` : null,
+    `Outstanding Principal: ${formatRupees(payment.outstandingPrincipal)}`,
+    `Total Outstanding: ${formatRupees(payment.totalOutstanding)}`,
+    payment.notes ? `Notes: ${payment.notes}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Open WhatsApp safely — opens window before any async work to avoid popup blockers */
+async function shareViaWhatsApp(
+  receiptEl: HTMLElement | null,
+  payment: Payment,
+  customerName: string,
+  loanId: string,
+  setSharingState: (v: boolean) => void,
+) {
+  setSharingState(true);
+  const smsText = buildPaymentSMSText(payment, customerName, loanId);
+  try {
+    // Try native share (mobile) first — this is a direct user gesture so no popup block
+    if (
+      receiptEl &&
+      navigator.canShare &&
+      navigator.canShare({
+        files: [new File([new Blob()], "t.png", { type: "image/png" })],
+      })
+    ) {
+      const blob = await captureElementAsBlob(receiptEl);
+      if (blob) {
+        await navigator.share({
+          title: "Village Finance Payment Receipt",
+          files: [
+            new File([blob], `VF_Receipt_${payment.receiptNo}.png`, {
+              type: "image/png",
+            }),
+          ],
+        });
+        setSharingState(false);
+        return;
+      }
+    }
+
+    // Desktop / fallback: open WhatsApp link directly in same tab to avoid popup block
+    if (receiptEl) {
+      const blob = await captureElementAsBlob(receiptEl);
+      if (blob) {
+        // Download the image
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `VF_Receipt_${payment.receiptNo}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    }
+    // Open WhatsApp — use location assign to avoid popup blocking
+    window.open(`https://wa.me/?text=${encodeURIComponent(smsText)}`, "_blank");
+  } catch (e) {
+    // If share was cancelled by user, just ignore; otherwise try direct link
+    if (e instanceof Error && e.name !== "AbortError") {
+      window.open(
+        `https://wa.me/?text=${encodeURIComponent(smsText)}`,
+        "_blank",
+      );
+    }
+  } finally {
+    setSharingState(false);
+  }
+}
+
 export default function Customers() {
   const { actor } = useActor();
   const [customers, setCustomers] = useState<CustomerFull[]>([]);
   const [villages, setVillages] = useState<Village[]>([]);
   const [allLoans, setAllLoans] = useState<Loan[]>([]);
+  const [allPayments, setAllPayments] = useState<Payment[]>([]);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<CustomerFull | null>(null);
   const [form, setForm] = useState({
@@ -78,17 +239,55 @@ export default function Customers() {
   const [customerLoans, setCustomerLoans] = useState<Loan[]>([]);
   const [loansLoading, setLoansLoading] = useState(false);
 
+  // Payment state
+  const [paymentLoan, setPaymentLoan] = useState<Loan | null>(null);
+  const [loanPayments, setLoanPayments] = useState<Payment[]>([]);
+  const [paymentForm, setPaymentForm] = useState({
+    amount: "",
+    penalty: "0",
+    notes: "",
+  });
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [paymentError, setPaymentError] = useState("");
+
+  // Receipt state (after new payment)
+  const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null);
+  const [receiptLoanId, setReceiptLoanId] = useState("");
+  const [receiptCustomerName, setReceiptCustomerName] = useState("");
+  const [sharingReceipt, setSharingReceipt] = useState(false);
+  const receiptRef = useRef<HTMLDivElement>(null);
+
+  // View receipts state (per loan) — list first, then detail
+  const [viewReceiptsLoan, setViewReceiptsLoan] = useState<Loan | null>(null);
+  const [viewReceiptsPayments, setViewReceiptsPayments] = useState<Payment[]>(
+    [],
+  );
+  const [viewReceiptsLoading, setViewReceiptsLoading] = useState(false);
+  const [selectedHistoryPayment, setSelectedHistoryPayment] =
+    useState<Payment | null>(null);
+  const [sharingHistoryReceipt, setSharingHistoryReceipt] = useState(false);
+  const historyReceiptRef = useRef<HTMLDivElement>(null);
+
   const load = useCallback(() => {
-    if (!actor) return;
+    if (!actor) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     Promise.all([
       actor.getAllCustomers(),
       actor.getAllVillages(),
       actor.getAllLoans(),
+      (actor as any).getAllPayments(),
     ])
-      .then(([c, v, loans]) => {
-        setCustomers(c);
-        setVillages(v);
-        setAllLoans(loans);
+      .then(([c, v, loans, payments]) => {
+        setCustomers(Array.isArray(c) ? c : []);
+        setVillages(Array.isArray(v) ? v : []);
+        setAllLoans(Array.isArray(loans) ? loans : []);
+        setAllPayments(Array.isArray(payments) ? payments : []);
+      })
+      .catch((err) => {
+        console.error("Failed to load data:", err);
       })
       .finally(() => setLoading(false));
   }, [actor]);
@@ -97,13 +296,21 @@ export default function Customers() {
     load();
   }, [load]);
 
+  // Compute remaining outstanding across all active loans for a customer
   const getLoanStats = (customerId: bigint) => {
     const loans = allLoans.filter((l) => l.customerId === customerId);
     const totalLoans = loans.length;
-    const activeOutstanding = loans
-      .filter((l) => l.status === Variant_closed_active.active)
-      .reduce((sum, l) => sum + l.totalAmount, BigInt(0));
-    return { totalLoans, activeOutstanding };
+    const activeLoans = loans.filter(
+      (l) => l.status === Variant_closed_active.active,
+    );
+    const remainingOutstanding = activeLoans.reduce((sum, loan) => {
+      const paid = allPayments
+        .filter((p) => p.loanId === loan.loanId)
+        .reduce((s, p) => s + p.amountPaid + p.penalty, 0n);
+      const remaining = loan.totalAmount - paid;
+      return sum + (remaining > 0n ? remaining : 0n);
+    }, 0n);
+    return { totalLoans, remainingOutstanding };
   };
 
   const openAdd = () => {
@@ -131,23 +338,19 @@ export default function Customers() {
   const handlePhoneChange = (value: string) => {
     setForm((f) => ({ ...f, phone: value }));
     if (phoneError) setPhoneError("");
-    // Inline duplicate check
     if (value) {
       const duplicate = customers.find(
         (c) => c.phone === value && (!edit || c.id !== edit.id),
       );
-      if (duplicate) {
+      if (duplicate)
         setPhoneError(
           "This mobile number is already registered to another customer.",
         );
-      }
     }
   };
 
   const save = async () => {
     if (!actor || !form.name || !form.villageId) return;
-
-    // Frontend duplicate check before backend call
     const duplicate = customers.find(
       (c) => c.phone === form.phone && (!edit || c.id !== edit.id),
     );
@@ -157,7 +360,6 @@ export default function Customers() {
       );
       return;
     }
-
     setSaving(true);
     try {
       if (edit) {
@@ -183,10 +385,7 @@ export default function Customers() {
       load();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (
-        msg.toLowerCase().includes("mobile number already exists") ||
-        msg.toLowerCase().includes("mobile number")
-      ) {
+      if (msg.toLowerCase().includes("mobile number")) {
         setPhoneError(
           "This mobile number is already registered to another customer.",
         );
@@ -212,8 +411,12 @@ export default function Customers() {
     if (!files) return;
     const newDocs: UploadedDoc[] = [];
     for (const file of files) {
-      const url = URL.createObjectURL(file);
-      newDocs.push({ name: file.name, url, type: file.type, size: file.size });
+      newDocs.push({
+        name: file.name,
+        url: URL.createObjectURL(file),
+        type: file.type,
+        size: file.size,
+      });
     }
     setDocs((prev) => [...prev, ...newDocs]);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -245,6 +448,104 @@ export default function Customers() {
     } finally {
       setLoansLoading(false);
     }
+  };
+
+  const openRecordPayment = async (loan: Loan) => {
+    if (!actor) return;
+    setPaymentLoan(loan);
+    setPaymentError("");
+    const pmts = await actor.getPaymentsByLoan(loan.loanId);
+    setLoanPayments(pmts);
+    const totalPaid = pmts.reduce(
+      (sum, p) => sum + p.amountPaid + p.penalty,
+      0n,
+    );
+    const remaining = loan.totalAmount - totalPaid;
+    const emiNum = Number(loan.emi) / 100;
+    const remainingNum = Number(remaining) / 100;
+    const prefill = Math.min(emiNum, remainingNum);
+    setPaymentForm({
+      amount: prefill > 0 ? prefill.toFixed(2) : "",
+      penalty: "0",
+      notes: "",
+    });
+  };
+
+  const submitPayment = async () => {
+    if (!actor || !paymentLoan || !viewLoansCustomer) return;
+    if (!paymentForm.amount || Number(paymentForm.amount) <= 0) {
+      setPaymentError("Please enter a valid amount.");
+      return;
+    }
+    const totalPaid = loanPayments.reduce(
+      (sum, p) => sum + p.amountPaid + p.penalty,
+      0n,
+    );
+    const remaining = paymentLoan.totalAmount - totalPaid;
+    const amountPaise = rupeeInputToPaise(paymentForm.amount);
+    const penaltyPaise = rupeeInputToPaise(paymentForm.penalty || "0");
+    if (amountPaise + penaltyPaise > remaining) {
+      setPaymentError(
+        `Amount exceeds remaining outstanding (${formatRupees(remaining)}).`,
+      );
+      return;
+    }
+    setPaymentSaving(true);
+    setPaymentError("");
+    try {
+      const payment = await actor.recordPayment(
+        paymentLoan.loanId,
+        viewLoansCustomer.id,
+        amountPaise,
+        penaltyPaise,
+        paymentForm.notes,
+      );
+      setPaymentLoan(null);
+      setReceiptPayment(payment);
+      setReceiptLoanId(paymentLoan.loanId);
+      setReceiptCustomerName(viewLoansCustomer.name);
+      const loans = await actor.getLoansByCustomer(viewLoansCustomer.id);
+      setCustomerLoans(
+        [...loans].sort(
+          (a, b) => Number(b.disbursedAt) - Number(a.disbursedAt),
+        ),
+      );
+      load();
+    } catch (e) {
+      setPaymentError(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setPaymentSaving(false);
+    }
+  };
+
+  const openViewReceipts = async (loan: Loan) => {
+    setViewReceiptsLoan(loan);
+    setViewReceiptsPayments([]);
+    setSelectedHistoryPayment(null);
+    setViewReceiptsLoading(true);
+    try {
+      if (actor) {
+        const pmts = await actor.getPaymentsByLoan(loan.loanId);
+        setViewReceiptsPayments(
+          [...pmts].sort(
+            (a, b) => Number(a.paymentDate) - Number(b.paymentDate),
+          ),
+        );
+      }
+    } catch (e) {
+      console.error("Failed to load receipts:", e);
+    } finally {
+      setViewReceiptsLoading(false);
+    }
+  };
+
+  const getRemainingOutstanding = () => {
+    if (!paymentLoan) return 0n;
+    const totalPaid = loanPayments.reduce(
+      (sum, p) => sum + p.amountPaid + p.penalty,
+      0n,
+    );
+    return paymentLoan.totalAmount - totalPaid;
   };
 
   const filtered = customers.filter(
@@ -296,7 +597,7 @@ export default function Customers() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((c, i) => {
             const village = getVillage(c.villageId);
-            const { totalLoans, activeOutstanding } = getLoanStats(c.id);
+            const { totalLoans, remainingOutstanding } = getLoanStats(c.id);
             return (
               <Card
                 key={c.id.toString()}
@@ -321,13 +622,14 @@ export default function Customers() {
                         <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full font-medium">
                           🏦 {totalLoans} {totalLoans === 1 ? "Loan" : "Loans"}
                         </span>
-                        {totalLoans > 0 && (
+                        {remainingOutstanding > 0n && (
                           <span className="text-xs bg-amber-400/80 text-amber-950 px-2 py-0.5 rounded-full font-semibold">
-                            ₹{" "}
-                            {formatRupees(activeOutstanding)
-                              .replace("₹", "")
-                              .trim()}{" "}
-                            outstanding
+                            Outstanding: {formatRupees(remainingOutstanding)}
+                          </span>
+                        )}
+                        {totalLoans > 0 && remainingOutstanding === 0n && (
+                          <span className="text-xs bg-green-300/80 text-green-900 px-2 py-0.5 rounded-full font-semibold">
+                            ✓ Fully Paid
                           </span>
                         )}
                       </div>
@@ -388,10 +690,8 @@ export default function Customers() {
           <DialogHeader>
             <DialogTitle>Customer Loans</DialogTitle>
           </DialogHeader>
-
           {viewLoansCustomer && (
             <>
-              {/* Customer Profile Card at the TOP */}
               <div className="bg-gradient-to-r from-teal-500 to-cyan-600 rounded-xl p-4 text-white mb-2">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 bg-white/30 rounded-full flex items-center justify-center font-bold text-2xl">
@@ -426,7 +726,6 @@ export default function Customers() {
                 </div>
               </div>
 
-              {/* Loans List */}
               <div className="font-semibold text-gray-700 mb-2">
                 Loan Accounts
               </div>
@@ -453,14 +752,10 @@ export default function Customers() {
                       <div
                         key={loan.loanId}
                         data-ocid={`customers.loans.item.${idx + 1}`}
-                        className={`rounded-lg border-2 overflow-hidden ${
-                          isActive ? "border-teal-300" : "border-gray-200"
-                        }`}
+                        className={`rounded-lg border-2 overflow-hidden ${isActive ? "border-teal-300" : "border-gray-200"}`}
                       >
                         <div
-                          className={`px-4 py-2 flex items-center justify-between ${
-                            isActive ? "bg-teal-50" : "bg-gray-50"
-                          }`}
+                          className={`px-4 py-2 flex items-center justify-between ${isActive ? "bg-teal-50" : "bg-gray-50"}`}
                         >
                           <span className="font-mono text-sm font-bold text-gray-700">
                             {loan.loanId}
@@ -507,6 +802,27 @@ export default function Customers() {
                             </span>
                           </div>
                         </div>
+                        <div className="flex gap-2 px-4 pb-3">
+                          {isActive && (
+                            <Button
+                              data-ocid={`customers.record_payment.button.${idx + 1}`}
+                              size="sm"
+                              onClick={() => openRecordPayment(loan)}
+                              className="bg-teal-600 hover:bg-teal-700 text-white text-xs flex-1"
+                            >
+                              💰 Record Payment
+                            </Button>
+                          )}
+                          <Button
+                            data-ocid={`customers.view_receipts.button.${idx + 1}`}
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openViewReceipts(loan)}
+                            className="text-xs flex-1"
+                          >
+                            🧾 Receipts
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
@@ -514,12 +830,369 @@ export default function Customers() {
               )}
             </>
           )}
-
           <DialogFooter>
             <Button
               data-ocid="customers.loans.close_button"
               variant="outline"
               onClick={() => setViewLoansCustomer(null)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Record Payment Dialog */}
+      <Dialog
+        open={!!paymentLoan}
+        onOpenChange={(v) => !v && setPaymentLoan(null)}
+      >
+        <DialogContent
+          data-ocid="customers.payment.dialog"
+          className="max-w-md"
+        >
+          <DialogHeader>
+            <DialogTitle>Record Payment — {paymentLoan?.loanId}</DialogTitle>
+          </DialogHeader>
+          {paymentLoan &&
+            (() => {
+              const remaining = getRemainingOutstanding();
+              const emiNum = Number(paymentLoan.emi) / 100;
+              return (
+                <div className="space-y-4">
+                  <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 text-sm space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Loan ID:</span>
+                      <span className="font-mono font-bold">
+                        {paymentLoan.loanId}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Monthly EMI:</span>
+                      <span className="font-semibold text-teal-700">
+                        {formatRupees(paymentLoan.emi)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">
+                        Remaining Outstanding:
+                      </span>
+                      <span className="font-bold text-red-600">
+                        {formatRupees(remaining)}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Amount Paid (₹)</Label>
+                    <Input
+                      data-ocid="customers.payment.amount.input"
+                      type="number"
+                      step="0.01"
+                      value={paymentForm.amount}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const maxRupees = Number(remaining) / 100;
+                        if (Number(val) > maxRupees) {
+                          setPaymentForm((f) => ({
+                            ...f,
+                            amount: maxRupees.toFixed(2),
+                          }));
+                        } else {
+                          setPaymentForm((f) => ({ ...f, amount: val }));
+                        }
+                      }}
+                      placeholder={emiNum.toFixed(2)}
+                    />
+                  </div>
+                  <div>
+                    <Label>Penalty (₹) — optional</Label>
+                    <Input
+                      data-ocid="customers.payment.penalty.input"
+                      type="number"
+                      step="0.01"
+                      value={paymentForm.penalty}
+                      onChange={(e) =>
+                        setPaymentForm((f) => ({
+                          ...f,
+                          penalty: e.target.value,
+                        }))
+                      }
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <Label>Notes — optional</Label>
+                    <Input
+                      data-ocid="customers.payment.notes.input"
+                      value={paymentForm.notes}
+                      onChange={(e) =>
+                        setPaymentForm((f) => ({ ...f, notes: e.target.value }))
+                      }
+                      placeholder="Any additional notes"
+                    />
+                  </div>
+                  {paymentError && (
+                    <div
+                      data-ocid="customers.payment.error_state"
+                      className="text-red-500 text-sm bg-red-50 border border-red-200 rounded p-2"
+                    >
+                      {paymentError}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          <DialogFooter>
+            <Button
+              data-ocid="customers.payment.cancel_button"
+              variant="outline"
+              onClick={() => setPaymentLoan(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              data-ocid="customers.payment.submit_button"
+              onClick={submitPayment}
+              disabled={paymentSaving || !paymentForm.amount}
+              className="bg-teal-600 hover:bg-teal-700"
+            >
+              {paymentSaving ? "Recording..." : "Record Payment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Receipt Dialog (after payment) */}
+      <Dialog
+        open={!!receiptPayment}
+        onOpenChange={(v) => !v && setReceiptPayment(null)}
+      >
+        <DialogContent
+          data-ocid="customers.receipt.dialog"
+          className="max-w-md"
+        >
+          <DialogHeader>
+            <DialogTitle>Payment Receipt</DialogTitle>
+          </DialogHeader>
+          {receiptPayment && (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800 font-medium">
+                ✅ Payment recorded successfully!
+                {receiptPayment.totalOutstanding === 0n && (
+                  <div className="mt-1 font-bold text-green-700">
+                    🎉 Loan fully paid and closed!
+                  </div>
+                )}
+              </div>
+              <ReceiptCard
+                payment={receiptPayment}
+                customerName={receiptCustomerName}
+                loanId={receiptLoanId}
+                receiptRef={receiptRef}
+              />
+              <div className="flex gap-2">
+                <Button
+                  data-ocid="customers.receipt.whatsapp.primary_button"
+                  onClick={() =>
+                    shareViaWhatsApp(
+                      receiptRef.current,
+                      receiptPayment,
+                      receiptCustomerName,
+                      receiptLoanId,
+                      setSharingReceipt,
+                    )
+                  }
+                  disabled={sharingReceipt}
+                  className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs"
+                >
+                  {sharingReceipt ? "Preparing..." : "📤 WhatsApp"}
+                </Button>
+                <Button
+                  data-ocid="customers.receipt.sms.secondary_button"
+                  onClick={() =>
+                    window.open(
+                      `sms:?body=${encodeURIComponent(buildPaymentSMSText(receiptPayment, receiptCustomerName, receiptLoanId))}`,
+                      "_blank",
+                    )
+                  }
+                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs"
+                >
+                  💬 SMS
+                </Button>
+                <Button
+                  data-ocid="customers.receipt.download.secondary_button"
+                  onClick={async () => {
+                    if (!receiptRef.current) return;
+                    const blob = await captureElementAsBlob(receiptRef.current);
+                    if (blob) {
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `VF_Receipt_${receiptPayment.receiptNo}.png`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }
+                  }}
+                  variant="outline"
+                  className="flex-1 text-xs"
+                >
+                  ⬇ Download
+                </Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              data-ocid="customers.receipt.close_button"
+              variant="outline"
+              onClick={() => setReceiptPayment(null)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Receipts History Dialog — shows transaction list first */}
+      <Dialog
+        open={!!viewReceiptsLoan}
+        onOpenChange={(v) => {
+          if (!v) {
+            setViewReceiptsLoan(null);
+            setSelectedHistoryPayment(null);
+          }
+        }}
+      >
+        <DialogContent
+          data-ocid="customers.receipts_history.dialog"
+          className="max-w-lg max-h-[90vh] overflow-y-auto"
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {selectedHistoryPayment
+                ? `Receipt — ${selectedHistoryPayment.receiptNo}`
+                : `Receipts — ${viewReceiptsLoan?.loanId}`}
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Back button when viewing a specific receipt */}
+          {selectedHistoryPayment && (
+            <Button
+              data-ocid="customers.receipts_history.back_button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedHistoryPayment(null)}
+              className="mb-2 text-xs"
+            >
+              ← Back to Transactions
+            </Button>
+          )}
+
+          {viewReceiptsLoading ? (
+            <div
+              data-ocid="customers.receipts.loading_state"
+              className="text-center py-8 text-gray-400"
+            >
+              Loading receipts...
+            </div>
+          ) : selectedHistoryPayment ? (
+            // Show full receipt for selected transaction
+            <div className="space-y-4">
+              <div ref={historyReceiptRef}>
+                <ReceiptCard
+                  payment={selectedHistoryPayment}
+                  customerName={viewLoansCustomer?.name || ""}
+                  loanId={viewReceiptsLoan?.loanId || ""}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  data-ocid="customers.history_receipt.whatsapp.button"
+                  size="sm"
+                  onClick={() =>
+                    shareViaWhatsApp(
+                      historyReceiptRef.current,
+                      selectedHistoryPayment,
+                      viewLoansCustomer?.name || "",
+                      viewReceiptsLoan?.loanId || "",
+                      setSharingHistoryReceipt,
+                    )
+                  }
+                  disabled={sharingHistoryReceipt}
+                  className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs"
+                >
+                  {sharingHistoryReceipt ? "Sharing..." : "📤 WhatsApp"}
+                </Button>
+                <Button
+                  data-ocid="customers.history_receipt.sms.button"
+                  size="sm"
+                  onClick={() => {
+                    const text = buildPaymentSMSText(
+                      selectedHistoryPayment,
+                      viewLoansCustomer?.name || "",
+                      viewReceiptsLoan?.loanId || "",
+                    );
+                    window.open(
+                      `sms:?body=${encodeURIComponent(text)}`,
+                      "_blank",
+                    );
+                  }}
+                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs"
+                >
+                  💬 SMS
+                </Button>
+              </div>
+            </div>
+          ) : viewReceiptsPayments.length === 0 ? (
+            <div
+              data-ocid="customers.receipts.empty_state"
+              className="text-center py-8 text-gray-400"
+            >
+              No payment receipts yet for this loan.
+            </div>
+          ) : (
+            // Show transaction list
+            <div className="space-y-2">
+              {viewReceiptsPayments.map((payment, idx) => (
+                <button
+                  key={payment.id.toString()}
+                  type="button"
+                  data-ocid={`customers.receipt_history.item.${idx + 1}`}
+                  className="w-full text-left border border-gray-200 rounded-lg p-3 hover:bg-teal-50 hover:border-teal-300 transition-colors flex items-center justify-between gap-3"
+                  onClick={() => setSelectedHistoryPayment(payment)}
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-gray-800">
+                      {formatDate(payment.paymentDate)}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Receipt #{payment.receiptNo}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="font-bold text-teal-700">
+                      {formatRupees(payment.amountPaid)}
+                    </div>
+                    {payment.penalty > 0n && (
+                      <div className="text-xs text-red-500">
+                        +{formatRupees(payment.penalty)} penalty
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-gray-400 text-xs">View →</div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              data-ocid="customers.receipts_history.close_button"
+              variant="outline"
+              onClick={() => {
+                setViewReceiptsLoan(null);
+                setSelectedHistoryPayment(null);
+              }}
             >
               Close
             </Button>

@@ -8,7 +8,6 @@ import Customers from "./pages/Customers";
 import Dashboard from "./pages/Dashboard";
 import Ledger from "./pages/Ledger";
 import Loans from "./pages/Loans";
-import Payments from "./pages/Payments";
 import Villages from "./pages/Villages";
 
 export default function App() {
@@ -47,7 +46,6 @@ export default function App() {
     { id: "villages", label: "Villages" },
     { id: "customers", label: "Customers" },
     { id: "loans", label: "Loans" },
-    { id: "payments", label: "Payments" },
     { id: "ledger", label: "Ledger" },
   ];
 
@@ -155,7 +153,6 @@ export default function App() {
         {activeTab === "villages" && <Villages />}
         {activeTab === "customers" && <Customers />}
         {activeTab === "loans" && <Loans />}
-        {activeTab === "payments" && <Payments />}
         {activeTab === "ledger" && <Ledger />}
       </main>
     </div>

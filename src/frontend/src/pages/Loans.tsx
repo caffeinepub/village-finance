@@ -1,5 +1,3 @@
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Loan, Payment, Village } from "../backend";
 import { Variant_closed_active } from "../backend";
@@ -53,7 +51,6 @@ function generateLoanProposalPDF(
   _formatRupeesFn: (v: bigint) => string,
   formatDateFn: (v: bigint) => string,
 ) {
-  const doc = new jsPDF();
   const principalNum = Number(loan.principal) / 100;
   const rateNum = Number(loan.interestRate) / 100;
   const tenureNum = Number(loan.tenureMonths);
@@ -62,58 +59,10 @@ function generateLoanProposalPDF(
   const rawEMI = totalRepayable / tenureNum;
   const emi = Math.ceil(rawEMI / 10) * 10;
   const principalPerEMI = principalNum / tenureNum;
-  const interestPerEMI = totalInterest / tenureNum;
-
-  // Header
-  doc.setFontSize(18);
-  doc.setTextColor(20, 100, 90);
-  doc.text("Village Finance", 105, 18, { align: "center" });
-  doc.setFontSize(12);
-  doc.setTextColor(80, 80, 80);
-  doc.text("Loan Proposal Document", 105, 26, { align: "center" });
-  doc.setLineWidth(0.5);
-  doc.setDrawColor(20, 100, 90);
-  doc.line(14, 30, 196, 30);
-
-  // Loan Details section
-  doc.setFontSize(13);
-  doc.setTextColor(20, 100, 90);
-  doc.text("Loan Details", 14, 40);
-
   const disbursedDate = formatDateFn(loan.disbursedAt);
-  autoTable(doc, {
-    startY: 44,
-    head: [["Field", "Value"]],
-    body: [
-      ["Loan ID", loan.loanId],
-      ["Customer Name", customerName],
-      ["Village", villageName],
-      ["Date Disbursed", disbursedDate],
-      ["Principal Amount", `Rs. ${principalNum.toFixed(2)}`],
-      ["Interest Rate", `${rateNum.toFixed(2)}% per month (flat)`],
-      ["Tenure", `${tenureNum} months`],
-      [
-        "Processing Fee",
-        `Rs. ${(Number(loan.processingFee) / 100).toFixed(2)}`,
-      ],
-      ["Total Interest", `Rs. ${totalInterest.toFixed(2)}`],
-      ["Total Repayable", `Rs. ${totalRepayable.toFixed(2)}`],
-      ["Monthly EMI", `Rs. ${emi.toFixed(2)}`],
-    ],
-    theme: "grid",
-    headStyles: { fillColor: [20, 100, 90], textColor: 255 },
-    alternateRowStyles: { fillColor: [240, 250, 248] },
-    margin: { left: 14, right: 14 },
-  });
-
-  // Repayment Schedule section
-  const afterTableY = (doc as any).lastAutoTable.finalY + 12;
-  doc.setFontSize(13);
-  doc.setTextColor(20, 100, 90);
-  doc.text("Repayment Schedule", 14, afterTableY);
-
   const disbursedMs = Number(loan.disbursedAt) / 1_000_000;
-  const scheduleRows: string[][] = [];
+
+  let scheduleRows = "";
   let outstandingPrincipal = principalNum;
   for (let i = 1; i <= tenureNum; i++) {
     const dueDate = new Date(disbursedMs);
@@ -124,51 +73,53 @@ function generateLoanProposalPDF(
       year: "numeric",
     });
     outstandingPrincipal = Math.max(0, principalNum - principalPerEMI * i);
-    scheduleRows.push([
-      i.toString(),
-      dueDateStr,
-      `Rs. ${emi.toFixed(2)}`,
-      `Rs. ${principalPerEMI.toFixed(2)}`,
-      `Rs. ${interestPerEMI.toFixed(2)}`,
-      `Rs. ${outstandingPrincipal.toFixed(2)}`,
-    ]);
+    scheduleRows += `<tr><td>${i}</td><td>${dueDateStr}</td><td>₹${emi.toFixed(2)}</td><td>₹${principalPerEMI.toFixed(2)}</td><td>₹${(totalInterest / tenureNum).toFixed(2)}</td><td>₹${outstandingPrincipal.toFixed(2)}</td></tr>`;
   }
 
-  autoTable(doc, {
-    startY: afterTableY + 4,
-    head: [
-      [
-        "Month",
-        "Due Date",
-        "EMI",
-        "Principal",
-        "Interest",
-        "Outstanding Principal",
-      ],
-    ],
-    body: scheduleRows,
-    theme: "striped",
-    headStyles: { fillColor: [20, 100, 90], textColor: 255, fontSize: 9 },
-    bodyStyles: { fontSize: 8 },
-    alternateRowStyles: { fillColor: [240, 250, 248] },
-    margin: { left: 14, right: 14 },
-  });
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Loan Proposal - ${loan.loanId}</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 24px; color: #222; }
+    h1 { color: #14645a; text-align: center; }
+    h2 { color: #14645a; margin-top: 24px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th { background: #14645a; color: #fff; padding: 6px 8px; text-align: left; }
+    td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
+    tr:nth-child(even) { background: #f0faf8; }
+    .footer { text-align: center; color: #999; font-size: 11px; margin-top: 32px; }
+    @media print { button { display: none; } }
+  </style></head><body>
+  <h1>Village Finance</h1>
+  <p style="text-align:center;color:#666">Loan Proposal Document</p>
+  <h2>Loan Details</h2>
+  <table>
+    <tr><th>Field</th><th>Value</th></tr>
+    <tr><td>Loan ID</td><td>${loan.loanId}</td></tr>
+    <tr><td>Customer Name</td><td>${customerName}</td></tr>
+    <tr><td>Village</td><td>${villageName}</td></tr>
+    <tr><td>Date Disbursed</td><td>${disbursedDate}</td></tr>
+    <tr><td>Principal Amount</td><td>₹${principalNum.toFixed(2)}</td></tr>
+    <tr><td>Interest Rate</td><td>${rateNum.toFixed(2)}% per month (flat)</td></tr>
+    <tr><td>Tenure</td><td>${tenureNum} months</td></tr>
+    <tr><td>Processing Fee</td><td>₹${(Number(loan.processingFee) / 100).toFixed(2)}</td></tr>
+    <tr><td>Total Interest</td><td>₹${totalInterest.toFixed(2)}</td></tr>
+    <tr><td>Total Repayable</td><td>₹${totalRepayable.toFixed(2)}</td></tr>
+    <tr><td>Monthly EMI</td><td>₹${emi.toFixed(2)}</td></tr>
+  </table>
+  <h2>Repayment Schedule</h2>
+  <table>
+    <tr><th>Month</th><th>Due Date</th><th>EMI</th><th>Principal</th><th>Interest</th><th>Outstanding Principal</th></tr>
+    ${scheduleRows}
+  </table>
+  <div class="footer">Village Finance | Generated on ${new Date().toLocaleDateString("en-IN")} | ${loan.loanId}</div>
+  <br/><button onclick="window.print()" style="padding:8px 16px;background:#14645a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:14px;">Print / Save as PDF</button>
+  </body></html>`;
 
-  // Footer
-  const pageCount = (doc as any).internal.getNumberOfPages();
-  for (let p = 1; p <= pageCount; p++) {
-    doc.setPage(p);
-    doc.setFontSize(8);
-    doc.setTextColor(150);
-    doc.text(
-      `Village Finance | Generated on ${new Date().toLocaleDateString("en-IN")} | Page ${p} of ${pageCount}`,
-      105,
-      doc.internal.pageSize.height - 8,
-      { align: "center" },
-    );
+  const w = window.open("", "_blank");
+  if (w) {
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
   }
-
-  doc.save(`VF_LoanProposal_${loan.loanId}.pdf`);
 }
 
 export default function Loans() {
@@ -1351,6 +1302,18 @@ export default function Loans() {
                   <span className="text-muted-foreground">Tenure:</span>{" "}
                   <span className="font-medium">
                     {detailLoan.tenureMonths.toString()} months
+                  </span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">
+                    Total Outstanding:
+                  </span>{" "}
+                  <span className="font-bold text-red-600">
+                    {payments.length > 0
+                      ? formatRupees(
+                          payments[payments.length - 1].totalOutstanding,
+                        )
+                      : formatRupees(detailLoan.totalAmount)}
                   </span>
                 </div>
               </div>
