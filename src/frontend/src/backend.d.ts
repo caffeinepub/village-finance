@@ -89,6 +89,7 @@ export interface backendInterface {
     createVillage(name: string, shortCode: string): Promise<Village>;
     deleteCustomer(id: bigint): Promise<void>;
     deleteVillage(id: bigint): Promise<void>;
+    deleteLoan(loanId: string): Promise<undefined>;
     disburseLoan(customerId: bigint, villageId: bigint, principal: bigint, interestRate: bigint, tenureMonths: bigint, processingFee: bigint): Promise<Loan>;
     topupLoan(existingLoanId: string, topupAmount: bigint, newInterestRate: bigint, newTenure: bigint, newProcessingFee: bigint): Promise<Loan>;
     getAllCustomers(): Promise<Array<CustomerFull>>;

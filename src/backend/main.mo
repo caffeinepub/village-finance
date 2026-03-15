@@ -174,7 +174,7 @@ actor {
   func makeLoanId(shortCode : Text) : Text {
     let now = Time.now();
     let (year, month) = yearMonthFromNs(now);
-    let yy = pad2(year % 100);
+    let yy = pad2((1970 + year) % 100);
     let mm = pad2(month);
     let prefix = shortCode # yy # mm;
     let prefixLen = prefix.size();
@@ -437,6 +437,20 @@ actor {
   public query ({ caller }) func getLoansByCustomer(customerId : Nat) : async [Loan] {
     if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
     loans.values().toArray().filter(func(l : Loan) : Bool { l.customerId == customerId });
+  };
+
+  public shared ({ caller }) func deleteLoan(loanId : Text) : async () {
+    if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
+    var foundLoan : ?Loan = null;
+    for ((_, l) in loans.entries()) {
+      if (l.loanId == loanId) { foundLoan := ?l };
+    };
+    let loan = switch (foundLoan) { case (null) { Runtime.trap("Loan not found") }; case (?l) { l } };
+    loans.remove(loan.id);
+    balanceInHand += loan.principal;
+    let txn : BalanceTransaction = { id = transactionIdCounter; type_ = #adjustment; amount = loan.principal; description = "Loan account deleted, principal returned: " # loanId; date = Time.now(); referenceId = loanId };
+    transactions.add(transactionIdCounter, txn);
+    transactionIdCounter += 1;
   };
 
   // Payments

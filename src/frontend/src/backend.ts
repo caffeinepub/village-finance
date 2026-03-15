@@ -172,6 +172,7 @@ export interface backendInterface {
     createVillage(name: string, shortCode: string): Promise<Village>;
     deleteCustomer(id: bigint): Promise<void>;
     deleteVillage(id: bigint): Promise<void>;
+    deleteLoan(loanId: string): Promise<void>;
     disburseLoan(customerId: bigint, villageId: bigint, principal: bigint, interestRate: bigint, tenureMonths: bigint, processingFee: bigint): Promise<Loan>;
     getAllAgents(): Promise<Array<string>>;
     getAllCustomers(): Promise<Array<Customer>>;
@@ -350,6 +351,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.deleteVillage(arg0);
+            return result;
+        }
+    }
+    async deleteLoan(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteLoan(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteLoan(arg0);
             return result;
         }
     }

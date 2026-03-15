@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Loan, Payment, Village } from "../backend";
 import { Variant_closed_active } from "../backend";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
@@ -153,6 +163,10 @@ export default function Loans() {
     processingFee: "",
   });
   const [topupSaving, setTopupSaving] = useState(false);
+
+  // Delete loan state
+  const [deleteLoanTarget, setDeleteLoanTarget] = useState<Loan | null>(null);
+  const [deletingLoan, setDeletingLoan] = useState(false);
 
   const [form, setForm] = useState({
     customerId: "",
@@ -443,6 +457,25 @@ export default function Loans() {
       </div>
     );
 
+  const confirmDeleteLoan = async () => {
+    if (!actor || !deleteLoanTarget) return;
+    setDeletingLoan(true);
+    try {
+      await actor.deleteLoan(deleteLoanTarget.loanId);
+      setDeleteLoanTarget(null);
+      const [updatedLoans] = await Promise.all([actor.getAllLoans()]);
+      setLoans(updatedLoans as Loan[]);
+      alert(
+        "Loan account deleted. Principal has been added back to Balance in Hand.",
+      );
+    } catch (err) {
+      console.error("Delete loan error:", err);
+      alert(`Failed to delete loan: ${String(err)}`);
+    } finally {
+      setDeletingLoan(false);
+    }
+  };
+
   return (
     <div data-ocid="loans.section">
       <div className="flex items-center justify-between mb-6">
@@ -526,6 +559,20 @@ export default function Loans() {
                             onClick={(e) => openTopup(loan, e)}
                           >
                             Top-up
+                          </Button>
+                        )}
+                        {isActive && (
+                          <Button
+                            data-ocid={`loans.delete_button.${i + 1}`}
+                            size="sm"
+                            variant="secondary"
+                            className="text-xs h-7 bg-red-100 hover:bg-red-200 text-red-700 border-red-300/50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteLoanTarget(loan);
+                            }}
+                          >
+                            🗑️ Delete
                           </Button>
                         )}
                       </div>
@@ -1376,6 +1423,51 @@ export default function Loans() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Loan Confirmation Dialog */}
+      <AlertDialog
+        open={!!deleteLoanTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteLoanTarget(null);
+        }}
+      >
+        <AlertDialogContent data-ocid="loans.delete_dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Loan Account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete loan{" "}
+              <strong>{deleteLoanTarget?.loanId}</strong>? The principal amount
+              (
+              <strong>
+                ₹
+                {deleteLoanTarget
+                  ? (Number(deleteLoanTarget.principal) / 100).toLocaleString(
+                      "en-IN",
+                    )
+                  : 0}
+              </strong>
+              ) will be added back to Balance in Hand. This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              data-ocid="loans.delete_cancel_button"
+              disabled={deletingLoan}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-ocid="loans.delete_confirm_button"
+              onClick={confirmDeleteLoan}
+              disabled={deletingLoan}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deletingLoan ? "Deleting..." : "Delete Loan"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

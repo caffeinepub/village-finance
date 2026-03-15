@@ -232,6 +232,8 @@ export default function Customers() {
   const [docs, setDocs] = useState<UploadedDoc[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deleteTarget, setDeleteTarget] = useState<CustomerFull | null>(null);
+  const [deleteLoanTarget, setDeleteLoanTarget] = useState<Loan | null>(null);
+  const [deletingLoan, setDeletingLoan] = useState(false);
 
   // View Loans state
   const [viewLoansCustomer, setViewLoansCustomer] =
@@ -421,6 +423,28 @@ export default function Customers() {
     await actor.deleteCustomer(deleteTarget.id);
     setDeleteTarget(null);
     load();
+  };
+
+  const confirmDeleteLoan = async () => {
+    if (!actor || !deleteLoanTarget) return;
+    setDeletingLoan(true);
+    try {
+      await actor.deleteLoan(deleteLoanTarget.loanId);
+      setDeleteLoanTarget(null);
+      // Refresh loans list
+      if (viewLoansCustomer) {
+        const loans = await actor.getLoansByCustomer(viewLoansCustomer.id);
+        setCustomerLoans(loans as Loan[]);
+      }
+      alert(
+        "Loan account deleted. Principal has been added back to Balance in Hand.",
+      );
+    } catch (err) {
+      console.error("Delete loan error:", err);
+      alert(`Failed to delete loan: ${String(err)}`);
+    } finally {
+      setDeletingLoan(false);
+    }
   };
 
   const getVillage = (id: bigint) => villages.find((v) => v.id === id);
@@ -841,6 +865,17 @@ export default function Customers() {
                           >
                             🧾 Receipts
                           </Button>
+                          {isActive && (
+                            <Button
+                              data-ocid="loan.delete_button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setDeleteLoanTarget(loan)}
+                              className="text-xs text-red-600 border-red-300 hover:bg-red-50"
+                            >
+                              🗑️ Delete
+                            </Button>
+                          )}
                         </div>
                       </div>
                     );
@@ -1218,6 +1253,51 @@ export default function Customers() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Loan Confirmation Dialog */}
+      <AlertDialog
+        open={!!deleteLoanTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteLoanTarget(null);
+        }}
+      >
+        <AlertDialogContent data-ocid="loan.delete_dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Loan Account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete loan{" "}
+              <strong>{deleteLoanTarget?.loanId}</strong>? The principal amount
+              (
+              <strong>
+                ₹
+                {deleteLoanTarget
+                  ? (Number(deleteLoanTarget.principal) / 100).toLocaleString(
+                      "en-IN",
+                    )
+                  : 0}
+              </strong>
+              ) will be added back to Balance in Hand. This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              data-ocid="loan.delete_cancel_button"
+              disabled={deletingLoan}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-ocid="loan.delete_confirm_button"
+              onClick={confirmDeleteLoan}
+              disabled={deletingLoan}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deletingLoan ? "Deleting..." : "Delete Loan"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog

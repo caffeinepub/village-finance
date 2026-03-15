@@ -97,6 +97,7 @@ export const idlService = IDL.Service({
   'getAllAgents' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
   'getAllCustomers' : IDL.Func([], [IDL.Vec(Customer)], ['query']),
   'getAllLoans' : IDL.Func([], [IDL.Vec(Loan)], ['query']),
+  'deleteLoan' : IDL.Func([IDL.Text], [], []),
   'getAllPayments' : IDL.Func([], [IDL.Vec(Payment)], ['query']),
   'getAllTransactions' : IDL.Func([], [IDL.Vec(BalanceTransaction)], ['query']),
   'getAllVillages' : IDL.Func([], [IDL.Vec(Village)], ['query']),
@@ -227,6 +228,7 @@ export const idlFactory = ({ IDL }) => {
     'getAllAgents' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
     'getAllCustomers' : IDL.Func([], [IDL.Vec(Customer)], ['query']),
     'getAllLoans' : IDL.Func([], [IDL.Vec(Loan)], ['query']),
+  'deleteLoan' : IDL.Func([IDL.Text], [], []),
     'getAllPayments' : IDL.Func([], [IDL.Vec(Payment)], ['query']),
     'getAllTransactions' : IDL.Func(
         [],
