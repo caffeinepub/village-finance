@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -15,8 +15,11 @@ type Step = "select" | "form";
 const ADMIN_MOBILE = "9989522319";
 const ADMIN_PIN = "329506";
 
+// Default agent PIN
+const DEFAULT_AGENT_PIN = "533286";
+
 export default function LoginPage() {
-  const { login, identity, isLoggingIn } = useInternetIdentity();
+  const { login, isLoggingIn } = useInternetIdentity();
   const { actor: rawActor } = useActor();
   const actor = rawActor as ExtendedBackend | null;
   const { loginAsCustomer, loginAsStaff, loginAsAdmin } = useAuth();
@@ -35,6 +38,8 @@ export default function LoginPage() {
   const [staffVerified, setStaffVerified] = useState(false);
   const [staffError, setStaffError] = useState("");
   const [staffChecking, setStaffChecking] = useState(false);
+  const [staffPin, setStaffPin] = useState("");
+  const [staffPinError, setStaffPinError] = useState("");
 
   // Customer form state
   const [custName, setCustName] = useState("");
@@ -42,13 +47,6 @@ export default function LoginPage() {
   const [custLoanId, setCustLoanId] = useState("");
   const [custError, setCustError] = useState("");
   const [custChecking, setCustChecking] = useState(false);
-
-  // After II login succeeds for staff, complete staff login
-  useEffect(() => {
-    if (identity && selectedRole === "staff" && staffVerified) {
-      loginAsStaff(staffPhone);
-    }
-  }, [identity, selectedRole, staffVerified, staffPhone, loginAsStaff]);
 
   const handleAdminPinLogin = () => {
     setAdminError("");
@@ -76,6 +74,16 @@ export default function LoginPage() {
       setStaffError("Verification failed. Please try again.");
     } finally {
       setStaffChecking(false);
+    }
+  };
+
+  const handleStaffPinLogin = () => {
+    setStaffPinError("");
+    const storedPin = localStorage.getItem("agent_pin") || DEFAULT_AGENT_PIN;
+    if (staffPin === storedPin) {
+      loginAsStaff(staffPhone);
+    } else {
+      setStaffPinError("Incorrect PIN. Please try again.");
     }
   };
 
@@ -366,19 +374,46 @@ export default function LoginPage() {
             ) : (
               <>
                 <p className="text-teal-300 text-sm mb-6 text-center">
-                  ✅ Phone verified! Now sign in with Internet Identity to
-                  complete login.
+                  ✅ Phone verified! Enter your 6-digit Login PIN to continue.
                 </p>
-                <Button
-                  data-ocid="login.staff.ii.primary_button"
-                  onClick={login}
-                  disabled={isLoggingIn}
-                  className="w-full bg-teal-600 hover:bg-teal-700 text-white"
-                >
-                  {isLoggingIn
-                    ? "Connecting..."
-                    : "Login with Internet Identity"}
-                </Button>
+                <div className="space-y-4">
+                  <div>
+                    <Label className="text-teal-200 text-sm mb-1 block">
+                      Login PIN
+                    </Label>
+                    <Input
+                      data-ocid="login.staff.pin.input"
+                      value={staffPin}
+                      onChange={(e) => {
+                        setStaffPin(e.target.value);
+                        setStaffPinError("");
+                      }}
+                      placeholder="Enter 6-digit PIN"
+                      className="bg-white/10 border-teal-400/40 text-white placeholder:text-white/40"
+                      type="password"
+                      maxLength={6}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleStaffPinLogin()
+                      }
+                    />
+                    {staffPinError && (
+                      <p
+                        data-ocid="login.staff.pin.error_state"
+                        className="text-red-400 text-xs mt-1"
+                      >
+                        {staffPinError}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    data-ocid="login.staff.pin.primary_button"
+                    onClick={handleStaffPinLogin}
+                    disabled={staffPin.length !== 6}
+                    className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+                  >
+                    Login
+                  </Button>
+                </div>
               </>
             )}
 
@@ -389,6 +424,8 @@ export default function LoginPage() {
                 setStaffVerified(false);
                 setStaffPhone("");
                 setStaffError("");
+                setStaffPin("");
+                setStaffPinError("");
               }}
               className="mt-4 text-teal-400 text-sm hover:text-teal-200 w-full text-center block"
             >

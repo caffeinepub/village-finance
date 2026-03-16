@@ -1,11 +1,22 @@
 import React, { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "../components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useAuth } from "../context/AuthContext";
 import Customers from "./Customers";
 import Dashboard from "./Dashboard";
 import Loans from "./Loans";
 import Villages from "./Villages";
+
+const DEFAULT_AGENT_PIN = "533286";
 
 class TabErrorBoundary extends React.Component<
   { children: React.ReactNode; tabId: string },
@@ -40,6 +51,116 @@ class TabErrorBoundary extends React.Component<
   }
 }
 
+function ChangePinSettings() {
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [error, setError] = useState("");
+
+  const handleChangePin = () => {
+    setError("");
+    const storedPin = localStorage.getItem("agent_pin") || DEFAULT_AGENT_PIN;
+
+    if (currentPin !== storedPin) {
+      setError("Current PIN is incorrect.");
+      return;
+    }
+    if (newPin.length !== 6 || !/^\d{6}$/.test(newPin)) {
+      setError("New PIN must be exactly 6 digits.");
+      return;
+    }
+    if (newPin !== confirmPin) {
+      setError("New PIN and Confirm PIN do not match.");
+      return;
+    }
+
+    localStorage.setItem("agent_pin", newPin);
+    toast.success("PIN changed successfully");
+    setCurrentPin("");
+    setNewPin("");
+    setConfirmPin("");
+  };
+
+  return (
+    <div className="max-w-md mx-auto mt-8">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-teal-700">🔒 Change Login PIN</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label htmlFor="current-pin" className="text-sm text-gray-700">
+              Current PIN
+            </Label>
+            <Input
+              id="current-pin"
+              data-ocid="settings.current_pin.input"
+              type="password"
+              maxLength={6}
+              value={currentPin}
+              onChange={(e) => {
+                setCurrentPin(e.target.value);
+                setError("");
+              }}
+              placeholder="Enter current 6-digit PIN"
+            />
+          </div>
+          <div>
+            <Label htmlFor="new-pin" className="text-sm text-gray-700">
+              New PIN
+            </Label>
+            <Input
+              id="new-pin"
+              data-ocid="settings.new_pin.input"
+              type="password"
+              maxLength={6}
+              value={newPin}
+              onChange={(e) => {
+                setNewPin(e.target.value);
+                setError("");
+              }}
+              placeholder="Enter new 6-digit PIN"
+            />
+          </div>
+          <div>
+            <Label htmlFor="confirm-pin" className="text-sm text-gray-700">
+              Confirm New PIN
+            </Label>
+            <Input
+              id="confirm-pin"
+              data-ocid="settings.confirm_pin.input"
+              type="password"
+              maxLength={6}
+              value={confirmPin}
+              onChange={(e) => {
+                setConfirmPin(e.target.value);
+                setError("");
+              }}
+              placeholder="Re-enter new 6-digit PIN"
+            />
+          </div>
+          {error && (
+            <p
+              data-ocid="settings.pin.error_state"
+              className="text-red-500 text-sm"
+            >
+              {error}
+            </p>
+          )}
+          <Button
+            data-ocid="settings.change_pin.primary_button"
+            onClick={handleChangePin}
+            disabled={!currentPin || !newPin || !confirmPin}
+            className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+          >
+            Change PIN
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function StaffPanel() {
   const { staffPhone, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -49,6 +170,7 @@ export default function StaffPanel() {
     { id: "villages", label: "Villages" },
     { id: "customers", label: "Customers" },
     { id: "loans", label: "Loan Disbursal" },
+    { id: "settings", label: "Settings" },
   ];
 
   return (
@@ -118,6 +240,11 @@ export default function StaffPanel() {
         {activeTab === "loans" && (
           <TabErrorBoundary key="loans" tabId="loans">
             <Loans />
+          </TabErrorBoundary>
+        )}
+        {activeTab === "settings" && (
+          <TabErrorBoundary key="settings" tabId="settings">
+            <ChangePinSettings />
           </TabErrorBoundary>
         )}
       </main>

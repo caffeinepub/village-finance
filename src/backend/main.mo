@@ -360,9 +360,9 @@ actor {
     if (balanceInHand < principal) { Runtime.trap("Insufficient balance in hand to disburse this loan") };
     let totalInterest = (principal * interestRate * tenureMonths) / 10000;
     let emiBase = principal + totalInterest;
-    let totalAmount = emiBase + processingFee;
+    let totalAmount = emiBase; // processingFee collected separately, not included in outstanding
     let emiRaw = if (tenureMonths > 0) emiBase / tenureMonths else emiBase;
-    let emi = roundUpToTen(emiRaw);
+    let emi = emiRaw;
     let shortCode = switch (villages.get(villageId)) {
       case (null) { "VIL" };
       case (?v) { v.shortCode };
@@ -407,7 +407,7 @@ actor {
     let totalInterest = (newPrincipal * newInterestRate * newTenure) / 10000;
     let emiBase = newPrincipal + totalInterest;
     let emiRaw = if (newTenure > 0) emiBase / newTenure else emiBase;
-    let emi = roundUpToTen(emiRaw);
+    let emi = emiRaw;
     let shortCode = switch (villages.get(oldLoan.villageId)) {
       case (null) { "VIL" };
       case (?v) { v.shortCode };
@@ -418,7 +418,7 @@ actor {
       villageId = oldLoan.villageId; principal = newPrincipal;
       interestRate = newInterestRate; tenureMonths = newTenure;
       processingFee = newProcessingFee; emi; totalInterest;
-      totalAmount = emiBase + newProcessingFee; disbursedAt = Time.now(); status = #active;
+      totalAmount = emiBase; disbursedAt = Time.now(); status = #active;
     };
     loans.add(loanIdCounter, newLoan);
     loanIdCounter += 1;
@@ -447,8 +447,47 @@ actor {
     };
     let loan = switch (foundLoan) { case (null) { Runtime.trap("Loan not found") }; case (?l) { l } };
     loans.remove(loan.id);
-    balanceInHand += loan.principal;
+    var totalPaidForLoan : Nat = 0;
+    for ((_, p) in payments.entries()) {
+      if (p.loanId == loanId) { totalPaidForLoan += p.amountPaid + p.penalty };
+    };
+    let outstandingTotalDel = safeSub(loan.totalAmount, totalPaidForLoan);
+    let principalOutstandingDel = if (loan.totalAmount > 0) (loan.principal * outstandingTotalDel) / loan.totalAmount else 0;
+    balanceInHand += principalOutstandingDel;
     let txn : BalanceTransaction = { id = transactionIdCounter; type_ = #adjustment; amount = loan.principal; description = "Loan account deleted, principal returned: " # loanId; date = Time.now(); referenceId = loanId };
+    transactions.add(transactionIdCounter, txn);
+    transactionIdCounter += 1;
+  };
+
+
+  public shared ({ caller }) func forecloseLoan(loanId : Text, amountReceived : Nat) : async () {
+    if (caller.isAnonymous()) { Runtime.trap("Authentication required") };
+    var foundLoan : ?Loan = null;
+    for ((_, l) in loans.entries()) {
+      if (l.loanId == loanId) { foundLoan := ?l };
+    };
+    let loan = switch (foundLoan) { case (null) { Runtime.trap("Loan not found") }; case (?l) { l } };
+    if (loan.status == #closed) { Runtime.trap("Loan is already closed") };
+    var totalPaidForLoan : Nat = 0;
+    for ((_, p) in payments.entries()) {
+      if (p.loanId == loanId) { totalPaidForLoan += p.amountPaid + p.penalty };
+    };
+    let outstandingTotal = safeSub(loan.totalAmount, totalPaidForLoan);
+    let principalOutstanding = if (loan.totalAmount > 0) (loan.principal * outstandingTotal) / loan.totalAmount else 0;
+    let foreclosureFee = (principalOutstanding * 300) / 10000;
+    let foreclosureAmount = principalOutstanding + foreclosureFee;
+    if (amountReceived != foreclosureAmount) { Runtime.trap("Amount received must equal the foreclosure amount of " # foreclosureAmount.toText()) };
+    let closedLoan : Loan = {
+      id = loan.id; loanId = loan.loanId; customerId = loan.customerId;
+      villageId = loan.villageId; principal = loan.principal;
+      interestRate = loan.interestRate; tenureMonths = loan.tenureMonths;
+      processingFee = loan.processingFee; emi = loan.emi;
+      totalInterest = loan.totalInterest; totalAmount = loan.totalAmount;
+      disbursedAt = loan.disbursedAt; status = #closed;
+    };
+    loans.add(loan.id, closedLoan);
+    balanceInHand += amountReceived;
+    let txn : BalanceTransaction = { id = transactionIdCounter; type_ = #collection; amount = amountReceived; description = "Foreclosure: " # loanId; date = Time.now(); referenceId = loanId };
     transactions.add(transactionIdCounter, txn);
     transactionIdCounter += 1;
   };

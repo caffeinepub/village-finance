@@ -77,6 +77,7 @@ export interface _SERVICE {
   'getAllCustomers' : ActorMethod<[], Array<Customer>>,
   'getAllLoans' : ActorMethod<[], Array<Loan>>,
   'deleteLoan' : ActorMethod<[string], undefined>;
+  'forecloseLoan' : ActorMethod<[string, bigint], undefined>;
   'getAllPayments' : ActorMethod<[], Array<Payment>>,
   'getAllTransactions' : ActorMethod<[], Array<BalanceTransaction>>,
   'getAllVillages' : ActorMethod<[], Array<Village>>,

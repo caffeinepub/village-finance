@@ -1,22 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Loan, Payment, Village } from "../backend";
 import { Variant_closed_active } from "../backend";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../components/ui/alert-dialog";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -43,7 +34,7 @@ function calcEMI(principal: number, rate: number, tenure: number): number {
   const totalInterest = (principal * rate * tenure) / 100;
   const totalRepayable = principal + totalInterest;
   const rawEMI = totalRepayable / tenure;
-  return Math.ceil(rawEMI / 10) * 10;
+  return rawEMI;
 }
 
 function calcTotalInterest(
@@ -67,7 +58,7 @@ function generateLoanProposalPDF(
   const totalInterest = (principalNum * rateNum * tenureNum) / 100;
   const totalRepayable = principalNum + totalInterest;
   const rawEMI = totalRepayable / tenureNum;
-  const emi = Math.ceil(rawEMI / 10) * 10;
+  const emi = rawEMI;
   const principalPerEMI = principalNum / tenureNum;
   const disbursedDate = formatDateFn(loan.disbursedAt);
   const disbursedMs = Number(loan.disbursedAt) / 1_000_000;
@@ -164,9 +155,16 @@ export default function Loans() {
   });
   const [topupSaving, setTopupSaving] = useState(false);
 
-  // Delete loan state
-  const [deleteLoanTarget, setDeleteLoanTarget] = useState<Loan | null>(null);
-  const [deletingLoan, setDeletingLoan] = useState(false);
+  // Foreclosure state
+  const [forecloseLoanTarget, setForeCloseLoanTarget] = useState<Loan | null>(
+    null,
+  );
+  const [foreclosingLoan, setForeclosingLoan] = useState(false);
+  const [foreclosurePayments, setForeclosurePayments] = useState<Payment[]>([]);
+  const [foreclosureAmountReceived, setForeclosureAmountReceived] =
+    useState("");
+  const [foreclosureLoadingPayments, setForeclosureLoadingPayments] =
+    useState(false);
 
   const [form, setForm] = useState({
     customerId: "",
@@ -457,22 +455,36 @@ export default function Loans() {
       </div>
     );
 
-  const confirmDeleteLoan = async () => {
-    if (!actor || !deleteLoanTarget) return;
-    setDeletingLoan(true);
+  const confirmForecloseLoan = async () => {
+    if (!actor || !forecloseLoanTarget) return;
+    const principalOutstandingBigInt = computeOutstandingPrincipal(
+      forecloseLoanTarget,
+      foreclosurePayments,
+    );
+    const foreclosureFeeBigInt = (principalOutstandingBigInt * 3n) / 100n;
+    const foreclosureTotalPaise =
+      principalOutstandingBigInt + foreclosureFeeBigInt;
+    const amountPaise = BigInt(
+      Math.round(Number.parseFloat(foreclosureAmountReceived) * 100),
+    );
+    if (amountPaise !== foreclosureTotalPaise) {
+      alert(
+        `Amount must equal the foreclosure amount: ₹${(Number(foreclosureTotalPaise) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
+      );
+      return;
+    }
+    setForeclosingLoan(true);
     try {
-      await actor.deleteLoan(deleteLoanTarget.loanId);
-      setDeleteLoanTarget(null);
+      await actor.forecloseLoan(forecloseLoanTarget.loanId, amountPaise);
+      setForeCloseLoanTarget(null);
       const [updatedLoans] = await Promise.all([actor.getAllLoans()]);
       setLoans(updatedLoans as Loan[]);
-      alert(
-        "Loan account deleted. Principal has been added back to Balance in Hand.",
-      );
+      alert("Loan foreclosed and closed successfully.");
     } catch (err) {
-      console.error("Delete loan error:", err);
-      alert(`Failed to delete loan: ${String(err)}`);
+      console.error("Foreclose loan error:", err);
+      alert(`Failed to foreclose loan: ${String(err)}`);
     } finally {
-      setDeletingLoan(false);
+      setForeclosingLoan(false);
     }
   };
 
@@ -563,16 +575,27 @@ export default function Loans() {
                         )}
                         {isActive && (
                           <Button
-                            data-ocid={`loans.delete_button.${i + 1}`}
+                            data-ocid={`loans.foreclose_button.${i + 1}`}
                             size="sm"
                             variant="secondary"
-                            className="text-xs h-7 bg-red-100 hover:bg-red-200 text-red-700 border-red-300/50"
-                            onClick={(e) => {
+                            className="text-xs h-7 bg-orange-100 hover:bg-orange-200 text-orange-700 border-orange-300/50"
+                            onClick={async (e) => {
                               e.stopPropagation();
-                              setDeleteLoanTarget(loan);
+                              if (!actor) return;
+                              setForeCloseLoanTarget(loan);
+                              setForeclosureAmountReceived("");
+                              setForeclosureLoadingPayments(true);
+                              try {
+                                const pmts = await actor.getPaymentsByLoan(
+                                  loan.loanId,
+                                );
+                                setForeclosurePayments(pmts as Payment[]);
+                              } finally {
+                                setForeclosureLoadingPayments(false);
+                              }
                             }}
                           >
-                            🗑️ Delete
+                            🔒 Fore Close
                           </Button>
                         )}
                       </div>
@@ -596,12 +619,6 @@ export default function Loans() {
                     <div className="text-muted-foreground">Tenure</div>
                     <div className="font-bold">
                       {loan.tenureMonths.toString()} months
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground">Processing Fee</div>
-                    <div className="font-bold">
-                      {formatRupees(loan.processingFee)}
                     </div>
                   </div>
                   <div>
@@ -733,7 +750,9 @@ export default function Loans() {
                 </div>
                 <div className="flex justify-between text-teal-700 border-t border-teal-200 pt-2 mt-1">
                   <span className="font-bold">Monthly EMI:</span>
-                  <span className="font-bold text-lg">₹{previewEMI}</span>
+                  <span className="font-bold text-lg">
+                    ₹{previewEMI.toFixed(2)}
+                  </span>
                 </div>
               </div>
             )}
@@ -1052,7 +1071,9 @@ export default function Loans() {
                   </div>
                   <div className="flex justify-between text-teal-700 border-t border-teal-200 pt-2">
                     <span className="font-bold">Monthly EMI:</span>
-                    <span className="font-bold text-lg">₹{editPreviewEMI}</span>
+                    <span className="font-bold text-lg">
+                      ₹{editPreviewEMI.toFixed(2)}
+                    </span>
                   </div>
                 </div>
               )}
@@ -1220,7 +1241,10 @@ export default function Loans() {
                         <div className="flex justify-between text-teal-700 border-t border-amber-200 pt-2">
                           <span className="font-bold">New Monthly EMI:</span>
                           <span className="font-bold text-lg">
-                            ₹{topupNewEMI}
+                            ₹
+                            {typeof topupNewEMI === "number"
+                              ? topupNewEMI.toFixed(2)
+                              : topupNewEMI}
                           </span>
                         </div>
                       )}
@@ -1424,50 +1448,124 @@ export default function Loans() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Loan Confirmation Dialog */}
-      <AlertDialog
-        open={!!deleteLoanTarget}
-        onOpenChange={(open) => {
-          if (!open) setDeleteLoanTarget(null);
-        }}
-      >
-        <AlertDialogContent data-ocid="loans.delete_dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Loan Account?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete loan{" "}
-              <strong>{deleteLoanTarget?.loanId}</strong>? The principal amount
-              (
-              <strong>
-                ₹
-                {deleteLoanTarget
-                  ? (Number(deleteLoanTarget.principal) / 100).toLocaleString(
-                      "en-IN",
-                    )
-                  : 0}
-              </strong>
-              ) will be added back to Balance in Hand. This action cannot be
-              undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              data-ocid="loans.delete_cancel_button"
-              disabled={deletingLoan}
+      {/* Foreclosure Dialog */}
+      {(() => {
+        const principalOutstandingBigInt = forecloseLoanTarget
+          ? computeOutstandingPrincipal(
+              forecloseLoanTarget,
+              foreclosurePayments,
+            )
+          : 0n;
+        const principalOutstanding = Number(principalOutstandingBigInt) / 100;
+        const foreclosureFee = (principalOutstanding * 3) / 100;
+        const foreclosureTotal = principalOutstanding + foreclosureFee;
+        return (
+          <Dialog
+            open={!!forecloseLoanTarget}
+            onOpenChange={(open) => {
+              if (!open) setForeCloseLoanTarget(null);
+            }}
+          >
+            <DialogContent
+              data-ocid="loans.foreclose_dialog"
+              className="max-w-md"
             >
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              data-ocid="loans.delete_confirm_button"
-              onClick={confirmDeleteLoan}
-              disabled={deletingLoan}
-              className="bg-red-600 hover:bg-red-700 text-white"
-            >
-              {deletingLoan ? "Deleting..." : "Delete Loan"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              <DialogHeader>
+                <DialogTitle>🔒 Fore Close Loan</DialogTitle>
+                <DialogDescription>
+                  Loan ID: <strong>{forecloseLoanTarget?.loanId}</strong>
+                </DialogDescription>
+              </DialogHeader>
+              {foreclosureLoadingPayments ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  Loading loan data...
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Principal Outstanding
+                      </span>
+                      <span className="font-medium">
+                        ₹
+                        {principalOutstanding.toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Foreclosure Fee (3%)
+                      </span>
+                      <span className="font-medium text-orange-600">
+                        ₹
+                        {foreclosureFee.toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-orange-200 pt-2">
+                      <span className="font-bold">
+                        Total Foreclosure Amount
+                      </span>
+                      <span className="font-bold text-orange-700 text-base">
+                        ₹
+                        {foreclosureTotal.toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="foreclose-amount"
+                      className="text-sm font-medium"
+                    >
+                      Amount Received (₹)
+                    </label>
+                    <Input
+                      id="foreclose-amount"
+                      data-ocid="loans.foreclose_amount_input"
+                      type="number"
+                      placeholder="Enter amount received"
+                      value={foreclosureAmountReceived}
+                      onChange={(e) =>
+                        setForeclosureAmountReceived(e.target.value)
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Loan will be closed only when the amount received equals
+                      the total foreclosure amount.
+                    </p>
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button
+                  data-ocid="loans.foreclose_cancel_button"
+                  variant="outline"
+                  onClick={() => setForeCloseLoanTarget(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  data-ocid="loans.foreclose_submit_button"
+                  onClick={confirmForecloseLoan}
+                  disabled={
+                    foreclosingLoan ||
+                    !foreclosureAmountReceived ||
+                    foreclosureLoadingPayments
+                  }
+                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                >
+                  {foreclosingLoan ? "Processing..." : "Fore Close Loan"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
     </div>
   );
 }

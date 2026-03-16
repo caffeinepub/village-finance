@@ -19,6 +19,7 @@ import { Card, CardContent } from "../components/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -232,8 +233,15 @@ export default function Customers() {
   const [docs, setDocs] = useState<UploadedDoc[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deleteTarget, setDeleteTarget] = useState<CustomerFull | null>(null);
-  const [deleteLoanTarget, setDeleteLoanTarget] = useState<Loan | null>(null);
-  const [deletingLoan, setDeletingLoan] = useState(false);
+  const [forecloseLoanTarget, setForeCloseLoanTarget] = useState<Loan | null>(
+    null,
+  );
+  const [foreclosingLoan, setForeclosingLoan] = useState(false);
+  const [foreclosurePayments, setForeclosurePayments] = useState<Payment[]>([]);
+  const [foreclosureAmountReceived, setForeclosureAmountReceived] =
+    useState("");
+  const [foreclosureLoadingPayments, setForeclosureLoadingPayments] =
+    useState(false);
 
   // View Loans state
   const [viewLoansCustomer, setViewLoansCustomer] =
@@ -425,25 +433,48 @@ export default function Customers() {
     load();
   };
 
-  const confirmDeleteLoan = async () => {
-    if (!actor || !deleteLoanTarget) return;
-    setDeletingLoan(true);
+  const computeOutstandingPrincipal = (loan: Loan, pmts: Payment[]): bigint => {
+    const totalPaid = pmts.reduce(
+      (sum, p) => sum + p.amountPaid + p.penalty,
+      0n,
+    );
+    const outstandingTotal = loan.totalAmount - totalPaid;
+    if (loan.totalAmount === 0n) return loan.principal;
+    return (loan.principal * outstandingTotal) / loan.totalAmount;
+  };
+
+  const confirmForecloseLoan = async () => {
+    if (!actor || !forecloseLoanTarget) return;
+    const principalOutstandingBigInt = computeOutstandingPrincipal(
+      forecloseLoanTarget,
+      foreclosurePayments,
+    );
+    const foreclosureFeeBigInt = (principalOutstandingBigInt * 3n) / 100n;
+    const foreclosureTotalPaise =
+      principalOutstandingBigInt + foreclosureFeeBigInt;
+    const amountPaise = BigInt(
+      Math.round(Number.parseFloat(foreclosureAmountReceived) * 100),
+    );
+    if (amountPaise !== foreclosureTotalPaise) {
+      alert(
+        `Amount must equal the foreclosure amount: ₹${(Number(foreclosureTotalPaise) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
+      );
+      return;
+    }
+    setForeclosingLoan(true);
     try {
-      await actor.deleteLoan(deleteLoanTarget.loanId);
-      setDeleteLoanTarget(null);
-      // Refresh loans list
+      await actor.forecloseLoan(forecloseLoanTarget.loanId, amountPaise);
+      setForeCloseLoanTarget(null);
       if (viewLoansCustomer) {
         const loans = await actor.getLoansByCustomer(viewLoansCustomer.id);
         setCustomerLoans(loans as Loan[]);
       }
-      alert(
-        "Loan account deleted. Principal has been added back to Balance in Hand.",
-      );
+      alert("Loan foreclosed and closed successfully.");
     } catch (err) {
-      console.error("Delete loan error:", err);
-      alert(`Failed to delete loan: ${String(err)}`);
+      console.error("Foreclose loan error:", err);
+      alert(`Failed to foreclose loan: ${String(err)}`);
     } finally {
-      setDeletingLoan(false);
+      setForeclosingLoan(false);
     }
   };
 
@@ -867,13 +898,26 @@ export default function Customers() {
                           </Button>
                           {isActive && (
                             <Button
-                              data-ocid="loan.delete_button"
+                              data-ocid="loan.foreclose_button"
                               size="sm"
                               variant="outline"
-                              onClick={() => setDeleteLoanTarget(loan)}
-                              className="text-xs text-red-600 border-red-300 hover:bg-red-50"
+                              onClick={async () => {
+                                if (!actor) return;
+                                setForeCloseLoanTarget(loan);
+                                setForeclosureAmountReceived("");
+                                setForeclosureLoadingPayments(true);
+                                try {
+                                  const pmts = await actor.getPaymentsByLoan(
+                                    loan.loanId,
+                                  );
+                                  setForeclosurePayments(pmts as Payment[]);
+                                } finally {
+                                  setForeclosureLoadingPayments(false);
+                                }
+                              }}
+                              className="text-xs text-orange-600 border-orange-300 hover:bg-orange-50"
                             >
-                              🗑️ Delete
+                              🔒 Fore Close
                             </Button>
                           )}
                         </div>
@@ -1254,50 +1298,124 @@ export default function Customers() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Loan Confirmation Dialog */}
-      <AlertDialog
-        open={!!deleteLoanTarget}
-        onOpenChange={(open) => {
-          if (!open) setDeleteLoanTarget(null);
-        }}
-      >
-        <AlertDialogContent data-ocid="loan.delete_dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Loan Account?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete loan{" "}
-              <strong>{deleteLoanTarget?.loanId}</strong>? The principal amount
-              (
-              <strong>
-                ₹
-                {deleteLoanTarget
-                  ? (Number(deleteLoanTarget.principal) / 100).toLocaleString(
-                      "en-IN",
-                    )
-                  : 0}
-              </strong>
-              ) will be added back to Balance in Hand. This action cannot be
-              undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              data-ocid="loan.delete_cancel_button"
-              disabled={deletingLoan}
+      {/* Foreclosure Dialog */}
+      {(() => {
+        const principalOutstandingBigInt = forecloseLoanTarget
+          ? computeOutstandingPrincipal(
+              forecloseLoanTarget,
+              foreclosurePayments,
+            )
+          : 0n;
+        const principalOutstanding = Number(principalOutstandingBigInt) / 100;
+        const foreclosureFee = (principalOutstanding * 3) / 100;
+        const foreclosureTotal = principalOutstanding + foreclosureFee;
+        return (
+          <Dialog
+            open={!!forecloseLoanTarget}
+            onOpenChange={(open) => {
+              if (!open) setForeCloseLoanTarget(null);
+            }}
+          >
+            <DialogContent
+              data-ocid="loan.foreclose_dialog"
+              className="max-w-md"
             >
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              data-ocid="loan.delete_confirm_button"
-              onClick={confirmDeleteLoan}
-              disabled={deletingLoan}
-              className="bg-red-600 hover:bg-red-700 text-white"
-            >
-              {deletingLoan ? "Deleting..." : "Delete Loan"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              <DialogHeader>
+                <DialogTitle>🔒 Fore Close Loan</DialogTitle>
+                <DialogDescription>
+                  Loan ID: <strong>{forecloseLoanTarget?.loanId}</strong>
+                </DialogDescription>
+              </DialogHeader>
+              {foreclosureLoadingPayments ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  Loading loan data...
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Principal Outstanding
+                      </span>
+                      <span className="font-medium">
+                        ₹
+                        {principalOutstanding.toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Foreclosure Fee (3%)
+                      </span>
+                      <span className="font-medium text-orange-600">
+                        ₹
+                        {foreclosureFee.toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-orange-200 pt-2">
+                      <span className="font-bold">
+                        Total Foreclosure Amount
+                      </span>
+                      <span className="font-bold text-orange-700 text-base">
+                        ₹
+                        {foreclosureTotal.toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="foreclose-amount"
+                      className="text-sm font-medium"
+                    >
+                      Amount Received (₹)
+                    </label>
+                    <Input
+                      id="foreclose-amount"
+                      data-ocid="loan.foreclose_amount_input"
+                      type="number"
+                      placeholder="Enter amount received"
+                      value={foreclosureAmountReceived}
+                      onChange={(e) =>
+                        setForeclosureAmountReceived(e.target.value)
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Loan will be closed only when the amount received equals
+                      the total foreclosure amount.
+                    </p>
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button
+                  data-ocid="loan.foreclose_cancel_button"
+                  variant="outline"
+                  onClick={() => setForeCloseLoanTarget(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  data-ocid="loan.foreclose_submit_button"
+                  onClick={confirmForecloseLoan}
+                  disabled={
+                    foreclosingLoan ||
+                    !foreclosureAmountReceived ||
+                    foreclosureLoadingPayments
+                  }
+                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                >
+                  {foreclosingLoan ? "Processing..." : "Fore Close Loan"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog
