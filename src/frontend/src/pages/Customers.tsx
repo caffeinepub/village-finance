@@ -69,7 +69,7 @@ function ReceiptCard({
       className="bg-white border-2 border-teal-200 rounded-xl p-5"
     >
       <div className="text-center border-b border-gray-200 pb-3 mb-4">
-        <div className="text-2xl">🏦</div>
+        {" "}
         <div className="font-bold text-teal-700 text-lg">Village Finance</div>
         <div className="text-xs text-gray-500">Payment Receipt</div>
         <div className="text-xs text-gray-400 mt-1">#{payment.receiptNo}</div>
@@ -277,6 +277,9 @@ export default function Customers() {
     useState<Payment | null>(null);
   const [sharingHistoryReceipt, setSharingHistoryReceipt] = useState(false);
   const historyReceiptRef = useRef<HTMLDivElement>(null);
+  const [showDisbursalReceipt, setShowDisbursalReceipt] = useState(false);
+  const [sharingDisbursalHistory, setSharingDisbursalHistory] = useState(false);
+  const historyDisbursalReceiptRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
     if (!actor) {
@@ -596,6 +599,7 @@ export default function Customers() {
     setViewReceiptsLoan(loan);
     setViewReceiptsPayments([]);
     setSelectedHistoryPayment(null);
+    setShowDisbursalReceipt(false);
     setViewReceiptsLoading(true);
     try {
       if (actor) {
@@ -1169,17 +1173,22 @@ export default function Customers() {
             <DialogTitle>
               {selectedHistoryPayment
                 ? `Receipt — ${selectedHistoryPayment.receiptNo}`
-                : `Receipts — ${viewReceiptsLoan?.loanId}`}
+                : showDisbursalReceipt
+                  ? `Disbursal Receipt — ${viewReceiptsLoan?.loanId}`
+                  : `Receipts — ${viewReceiptsLoan?.loanId}`}
             </DialogTitle>
           </DialogHeader>
 
           {/* Back button when viewing a specific receipt */}
-          {selectedHistoryPayment && (
+          {(selectedHistoryPayment || showDisbursalReceipt) && (
             <Button
               data-ocid="customers.receipts_history.back_button"
               variant="outline"
               size="sm"
-              onClick={() => setSelectedHistoryPayment(null)}
+              onClick={() => {
+                setSelectedHistoryPayment(null);
+                setShowDisbursalReceipt(false);
+              }}
               className="mb-2 text-xs"
             >
               ← Back to Transactions
@@ -1194,7 +1203,7 @@ export default function Customers() {
               Loading receipts...
             </div>
           ) : selectedHistoryPayment ? (
-            // Show full receipt for selected transaction
+            // Show full receipt for selected payment transaction
             <div className="space-y-4">
               <div ref={historyReceiptRef}>
                 <ReceiptCard
@@ -1241,21 +1250,266 @@ export default function Customers() {
                 </Button>
               </div>
             </div>
-          ) : viewReceiptsPayments.length === 0 ? (
-            <div
-              data-ocid="customers.receipts.empty_state"
-              className="text-center py-8 text-gray-400"
-            >
-              No payment receipts yet for this loan.
+          ) : showDisbursalReceipt && viewReceiptsLoan ? (
+            // Show disbursal receipt
+            <div className="space-y-4">
+              {(() => {
+                const loan = viewReceiptsLoan;
+                const village = villages.find((v) => v.id === loan.villageId);
+                const totalInterest =
+                  Number(loan.totalAmount - loan.principal) / 100;
+                return (
+                  <>
+                    <div
+                      ref={historyDisbursalReceiptRef}
+                      className="bg-white border-2 border-teal-200 rounded-xl p-5"
+                    >
+                      <div className="text-center border-b border-gray-200 pb-3 mb-4">
+                        {" "}
+                        <div className="font-bold text-teal-700 text-lg">
+                          Village Finance
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Loan Disbursal Receipt
+                        </div>
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Loan ID</span>
+                          <span className="font-medium">{loan.loanId}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Customer</span>
+                          <span className="font-medium">
+                            {viewLoansCustomer?.name || "--"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Village</span>
+                          <span className="font-medium">
+                            {village
+                              ? `${village.shortCode} - ${village.name}`
+                              : "--"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Date Disbursed</span>
+                          <span className="font-medium">
+                            {formatDate(loan.disbursedAt)}
+                          </span>
+                        </div>
+                        <div className="border-t pt-2 mt-2 space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">
+                              Principal Amount
+                            </span>
+                            <span className="font-bold">
+                              {formatRupees(loan.principal)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Interest Rate</span>
+                            <span className="font-medium">
+                              {(Number(loan.interestRate) / 100).toFixed(2)}%
+                              per month
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Tenure</span>
+                            <span className="font-medium">
+                              {loan.tenureMonths.toString()} months
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">
+                              Total Interest
+                            </span>
+                            <span className="font-medium">
+                              ₹{totalInterest.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">
+                              Total Repayable
+                            </span>
+                            <span className="font-bold">
+                              {formatRupees(loan.totalAmount)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Monthly EMI</span>
+                            <span className="font-bold">
+                              {formatRupees(loan.emi)}
+                            </span>
+                          </div>
+                          {loan.processingFee > 0n && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">
+                                Processing Fee
+                              </span>
+                              <span className="font-medium">
+                                {formatRupees(loan.processingFee)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-center mt-4 pt-3 border-t border-gray-100">
+                        <div className="text-xs text-gray-400">
+                          Loan disbursed successfully
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        data-ocid="customers.disbursal_receipt.whatsapp.button"
+                        size="sm"
+                        disabled={sharingDisbursalHistory}
+                        onClick={async () => {
+                          setSharingDisbursalHistory(true);
+                          try {
+                            const el = historyDisbursalReceiptRef.current;
+                            const customerName = viewLoansCustomer?.name || "";
+                            const smsText = [
+                              "Village Finance Loan Disbursal",
+                              `Loan ID: ${loan.loanId}`,
+                              `Customer: ${customerName}`,
+                              `Principal: ${formatRupees(loan.principal)}`,
+                              `EMI: ${formatRupees(loan.emi)}/month`,
+                              `Tenure: ${loan.tenureMonths.toString()} months`,
+                              `Total Interest: ₹${totalInterest.toFixed(2)}`,
+                              `Total Repayable: ${formatRupees(loan.totalAmount)}`,
+                              `Date: ${formatDate(loan.disbursedAt)}`,
+                            ].join("\n");
+                            if (el) {
+                              const blob = await captureElementAsBlob(el);
+                              if (!blob) {
+                                window.open(
+                                  `https://wa.me/?text=${encodeURIComponent(smsText)}`,
+                                  "_blank",
+                                );
+                                setSharingDisbursalHistory(false);
+                                return;
+                              }
+                              try {
+                                if (
+                                  navigator.share &&
+                                  navigator.canShare({
+                                    files: [
+                                      new File([blob], "receipt.png", {
+                                        type: "image/png",
+                                      }),
+                                    ],
+                                  })
+                                ) {
+                                  await navigator.share({
+                                    files: [
+                                      new File([blob], "receipt.png", {
+                                        type: "image/png",
+                                      }),
+                                    ],
+                                    text: smsText,
+                                  });
+                                } else {
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement("a");
+                                  a.href = url;
+                                  a.download = `disbursal-${loan.loanId}.png`;
+                                  a.click();
+                                  URL.revokeObjectURL(url);
+                                  setTimeout(
+                                    () =>
+                                      window.open(
+                                        `https://wa.me/?text=${encodeURIComponent(smsText)}`,
+                                        "_blank",
+                                      ),
+                                    500,
+                                  );
+                                }
+                              } catch {
+                                window.open(
+                                  `https://wa.me/?text=${encodeURIComponent(smsText)}`,
+                                  "_blank",
+                                );
+                              }
+                              setSharingDisbursalHistory(false);
+                              window.open(
+                                `https://wa.me/?text=${encodeURIComponent(smsText)}`,
+                                "_blank",
+                              );
+                              setSharingDisbursalHistory(false);
+                            }
+                          } catch {
+                            setSharingDisbursalHistory(false);
+                          }
+                        }}
+                        className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs"
+                      >
+                        {sharingDisbursalHistory ? "Sharing..." : "📤 WhatsApp"}
+                      </Button>
+                      <Button
+                        data-ocid="customers.disbursal_receipt.sms.button"
+                        size="sm"
+                        onClick={() => {
+                          const customerName = viewLoansCustomer?.name || "";
+                          const text = [
+                            "Village Finance Loan Disbursal",
+                            `Loan ID: ${loan.loanId}`,
+                            `Customer: ${customerName}`,
+                            `Principal: ${formatRupees(loan.principal)}`,
+                            `EMI: ${formatRupees(loan.emi)}/month`,
+                            `Tenure: ${loan.tenureMonths.toString()} months`,
+                            `Total Interest: ₹${totalInterest.toFixed(2)}`,
+                            `Total Repayable: ${formatRupees(loan.totalAmount)}`,
+                            `Date: ${formatDate(loan.disbursedAt)}`,
+                          ].join("\n");
+                          window.open(
+                            `sms:?body=${encodeURIComponent(text)}`,
+                            "_blank",
+                          );
+                        }}
+                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs"
+                      >
+                        💬 SMS
+                      </Button>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           ) : (
-            // Show transaction list
+            // Show transaction list (disbursal first, then payments)
             <div className="space-y-2">
+              {/* Disbursal entry — always first */}
+              {viewReceiptsLoan && (
+                <button
+                  type="button"
+                  data-ocid="customers.receipt_history.item.1"
+                  className="w-full text-left border border-teal-200 bg-teal-50 rounded-lg p-3 hover:bg-teal-100 hover:border-teal-400 transition-colors flex items-center justify-between gap-3"
+                  onClick={() => setShowDisbursalReceipt(true)}
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-gray-800">
+                      {formatDate(viewReceiptsLoan.disbursedAt)}
+                    </div>
+                    <div className="text-xs text-teal-600 font-medium">
+                      Disbursal Receipt
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="font-bold text-red-600">
+                      -{formatRupees(viewReceiptsLoan.principal)}
+                    </div>
+                    <div className="text-xs text-gray-400">Loan Disbursal</div>
+                  </div>
+                  <div className="text-gray-400 text-xs">View →</div>
+                </button>
+              )}
               {viewReceiptsPayments.map((payment, idx) => (
                 <button
                   key={payment.id.toString()}
                   type="button"
-                  data-ocid={`customers.receipt_history.item.${idx + 1}`}
+                  data-ocid={`customers.receipt_history.item.${idx + 2}`}
                   className="w-full text-left border border-gray-200 rounded-lg p-3 hover:bg-teal-50 hover:border-teal-300 transition-colors flex items-center justify-between gap-3"
                   onClick={() => setSelectedHistoryPayment(payment)}
                 >
@@ -1280,6 +1534,12 @@ export default function Customers() {
                   <div className="text-gray-400 text-xs">View →</div>
                 </button>
               ))}
+              {viewReceiptsPayments.length === 0 && (
+                <div className="text-center py-4 text-gray-400 text-sm">
+                  No payment receipts yet. Tap the disbursal entry above to view
+                  the loan disbursal receipt.
+                </div>
+              )}
             </div>
           )}
 

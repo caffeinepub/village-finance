@@ -65,7 +65,7 @@ export default function CustomerPortal() {
       <header className="bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">🏦</span>
+            {" "}
             <div>
               <div className="font-bold">Village Finance</div>
               <div className="text-xs text-amber-200">Customer Portal</div>

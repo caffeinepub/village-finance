@@ -151,7 +151,7 @@ export default function LoginPage() {
         transition={{ duration: 0.5 }}
         className="text-center mb-10"
       >
-        <div className="text-6xl mb-3">🏦</div>
+        {" "}
         <h1 className="text-4xl font-bold text-white mb-1">Village Finance</h1>
         <p className="text-indigo-300 text-sm">
           Lending management for your village business

@@ -409,7 +409,7 @@ export default function Payments() {
                 className="bg-white border-2 border-indigo-200 rounded-xl p-5"
               >
                 <div className="text-center border-b border-gray-200 pb-3 mb-4">
-                  <div className="text-2xl">🏦</div>
+                  {" "}
                   <div className="font-bold text-indigo-700 text-lg">
                     Village Finance
                   </div>
@@ -506,7 +506,7 @@ export default function Payments() {
                   )}
                   <div id={`receipt-${p.receiptNo}`} className="bg-white p-4">
                     <div className="text-center border-b border-gray-200 pb-2 mb-3">
-                      <div className="text-lg">🏦</div>
+                      {" "}
                       <div className="font-bold text-indigo-700 text-sm">
                         Village Finance
                       </div>

@@ -1,10 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  type BalanceTransaction,
-  type DashboardStats,
-  Variant_adjustment_collection_disbursal,
-} from "../backend";
-import { Badge } from "../components/ui/badge";
+import type { DashboardStats } from "../backend";
 import { Button } from "../components/ui/button";
 import {
   Card,
@@ -23,28 +18,18 @@ interface Props {
 export default function Dashboard({ onNavigate }: Props) {
   const { actor } = useActor();
   const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [transactions, setTransactions] = useState<BalanceTransaction[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!actor) return;
     setLoading(true);
-    Promise.all([actor.getDashboardStats(), actor.getAllTransactions()])
-      .then(([s, t]) => {
+    actor
+      .getDashboardStats()
+      .then((s) => {
         setStats(s);
-        const sorted = [...t].sort((a, b) => Number(b.date) - Number(a.date));
-        setTransactions(sorted.slice(0, 5));
       })
       .finally(() => setLoading(false));
   }, [actor]);
-
-  const txTypeColor = (type: Variant_adjustment_collection_disbursal) => {
-    if (type === Variant_adjustment_collection_disbursal.disbursal)
-      return "bg-red-100 text-red-700";
-    if (type === Variant_adjustment_collection_disbursal.collection)
-      return "bg-green-100 text-green-700";
-    return "bg-blue-100 text-blue-700";
-  };
 
   if (loading) {
     return (
@@ -130,57 +115,6 @@ export default function Dashboard({ onNavigate }: Props) {
           Add Customer
         </Button>
       </div>
-
-      {/* Recent Transactions */}
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle className="text-lg">Recent Transactions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {transactions.length === 0 ? (
-            <div
-              data-ocid="transactions.empty_state"
-              className="text-center py-8 text-gray-400"
-            >
-              No transactions yet
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {transactions.map((tx, i) => (
-                <div
-                  key={tx.id.toString()}
-                  data-ocid={`transactions.item.${i + 1}`}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                >
-                  <div>
-                    <div className="font-medium text-sm">{tx.description}</div>
-                    <div className="text-xs text-gray-500">
-                      {formatDate(tx.date)} · Ref: {tx.referenceId}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge className={txTypeColor(tx.type)}>{tx.type}</Badge>
-                    <span
-                      className={`font-bold ${
-                        tx.type ===
-                        Variant_adjustment_collection_disbursal.disbursal
-                          ? "text-red-600"
-                          : "text-green-600"
-                      }`}
-                    >
-                      {tx.type ===
-                      Variant_adjustment_collection_disbursal.disbursal
-                        ? "-"
-                        : "+"}
-                      {formatRupees(tx.amount)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       {/* Collection Calendar */}
       <div className="mt-2">

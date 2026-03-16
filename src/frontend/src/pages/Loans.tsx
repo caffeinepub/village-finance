@@ -123,6 +123,88 @@ function generateLoanProposalPDF(
   }
 }
 
+function generateNOCPdf(
+  loan: Loan,
+  customerName: string,
+  customerAddress: string,
+  customerAadhar: string,
+  villageName: string,
+  closureTypeLabel: string,
+) {
+  const principalNum = Number(loan.principal) / 100;
+  const closureDateMs = Number(loan.disbursedAt) / 1_000_000;
+  const closureDateStr = new Date(closureDateMs).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+  const today = new Date().toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>NOC - ${loan.loanId}</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 40px; color: #222; max-width: 700px; margin: 0 auto; }
+    h1 { color: #14645a; text-align: center; font-size: 26px; margin-bottom: 4px; }
+    h2 { text-align: center; font-size: 16px; color: #555; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 2px; border-bottom: 2px solid #14645a; padding-bottom: 12px; }
+    .cert-box { border: 3px double #14645a; padding: 30px; border-radius: 8px; margin: 20px 0; }
+    .field { margin: 8px 0; }
+    .label { color: #555; font-size: 13px; }
+    .value { font-weight: bold; font-size: 14px; }
+    .statement { margin: 20px 0; line-height: 1.8; font-size: 15px; background: #f0faf8; padding: 16px; border-left: 4px solid #14645a; border-radius: 4px; }
+    .sign-area { margin-top: 40px; display: flex; justify-content: space-between; }
+    .sign-block { text-align: center; }
+    .sign-line { border-top: 1px solid #333; width: 180px; margin: 0 auto 6px; }
+    .footer { text-align: center; color: #999; font-size: 11px; margin-top: 32px; }
+    @media print { button { display: none; } }
+  </style></head><body>
+  <h1>🏦 Village Finance</h1>
+  <h2>No Objection Certificate</h2>
+  <div class="cert-box">
+    <div class="field"><span class="label">Certificate No: </span><span class="value">NOC-${loan.loanId}</span></div>
+    <div class="field"><span class="label">Date: </span><span class="value">${today}</span></div>
+    <div class="field"><span class="label">Loan ID: </span><span class="value">${loan.loanId}</span></div>
+    <div class="field"><span class="label">Borrower Name: </span><span class="value">${customerName}</span></div>
+    <div class="field"><span class="label">Address: </span><span class="value">${customerAddress || "--"}</span></div>
+    ${customerAadhar ? `<div class="field"><span class="label">Aadhar No: </span><span class="value">${customerAadhar}</span></div>` : ""}
+    <div class="field"><span class="label">Village: </span><span class="value">${villageName}</span></div>
+    <div class="field"><span class="label">Principal Amount: </span><span class="value">₹${principalNum.toFixed(2)}</span></div>
+    <div class="field"><span class="label">Loan Disbursed On: </span><span class="value">${closureDateStr}</span></div>
+    <div class="field"><span class="label">Closure Type: </span><span class="value">${closureTypeLabel}</span></div>
+    <div class="statement">
+      This is to certify that <strong>${customerName}</strong> has fully repaid the loan of 
+      <strong>₹${principalNum.toFixed(2)}</strong> (Loan ID: <strong>${loan.loanId}</strong>) 
+      availed from <strong>Village Finance</strong>. All dues have been cleared and the 
+      loan account is now closed. No objection is raised against the borrower with 
+      respect to this loan.
+    </div>
+    <div class="sign-area">
+      <div class="sign-block">
+        <div class="sign-line"></div>
+        <div>Borrower Signature</div>
+        <div style="font-size:12px;color:#777">${customerName}</div>
+      </div>
+      <div class="sign-block">
+        <div class="sign-line"></div>
+        <div>Authorized Signatory</div>
+        <div style="font-size:12px;color:#777">Village Finance</div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">Village Finance | ${today} | ${loan.loanId}</div>
+  <br/><button onclick="window.print()" style="padding:8px 16px;background:#14645a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:14px;">Print / Save as PDF</button>
+  </body></html>`;
+
+  const w = window.open("", "_blank");
+  if (w) {
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+  }
+}
+
 export default function Loans() {
   const { actor } = useActor();
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -165,6 +247,17 @@ export default function Loans() {
     useState("");
   const [foreclosureLoadingPayments, setForeclosureLoadingPayments] =
     useState(false);
+
+  // Closure receipt state
+  const [closureReceiptLoan, setClosureReceiptLoan] = useState<Loan | null>(
+    null,
+  );
+  const [closureReceiptOpen, setClosureReceiptOpen] = useState(false);
+  const [closureType, setClosureType] = useState<
+    "Closed" | "Foreclosed" | "TopUp"
+  >("Closed");
+  const [sharingClosure, setSharingClosure] = useState(false);
+  const closureReceiptRef = useRef<HTMLDivElement>(null);
 
   const [form, setForm] = useState({
     customerId: "",
@@ -347,11 +440,14 @@ export default function Loans() {
         BigInt(topupTenure),
         rupeeInputToPaise(topupForm.processingFee || "0"),
       );
+      const oldLoan = topupLoan;
       setTopupOpen(false);
       setTopupLoan(null);
       load();
       setDisbursalLoan(newLoan);
       setDisbursalReceiptOpen(true);
+      setClosureReceiptLoan(oldLoan);
+      setClosureType("TopUp");
     } catch (e) {
       alert(`Error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -445,6 +541,93 @@ export default function Loans() {
     ].join("\n");
   }
 
+  function buildClosureSMSText(
+    loan: Loan,
+    customerName: string,
+    cType: string,
+  ): string {
+    return [
+      "Village Finance Loan Closure",
+      `Loan ID: ${loan.loanId}`,
+      `Customer: ${customerName}`,
+      `Principal: ${formatRupees(loan.principal)}`,
+      `Closure Type: ${cType}`,
+      `Date: ${formatDate(loan.disbursedAt)}`,
+      "Account Status: CLOSED",
+    ].join("\n");
+  }
+
+  const shareClosureWhatsApp = async () => {
+    if (!closureReceiptLoan || !closureReceiptRef.current) return;
+    setSharingClosure(true);
+    try {
+      const blob = await captureElementAsBlob(closureReceiptRef.current);
+      const customer = getCustomer(closureReceiptLoan.customerId);
+      const customerName = customer?.name || "Customer";
+      if (
+        blob &&
+        navigator.canShare &&
+        navigator.canShare({
+          files: [new File([blob], "receipt.png", { type: "image/png" })],
+        })
+      ) {
+        const file = new File(
+          [blob],
+          `VF_Closure_${closureReceiptLoan.loanId}.png`,
+          { type: "image/png" },
+        );
+        await navigator.share({
+          title: "Village Finance Closure Receipt",
+          text: `Loan closure receipt for ${customerName} - ${closureReceiptLoan.loanId}`,
+          files: [file],
+        });
+      } else if (blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `VF_Closure_${closureReceiptLoan.loanId}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setTimeout(() => {
+          const text = buildClosureSMSText(
+            closureReceiptLoan,
+            customerName,
+            closureType,
+          );
+          window.open(
+            `https://wa.me/?text=${encodeURIComponent(text)}`,
+            "_blank",
+          );
+        }, 500);
+      } else {
+        const text = buildClosureSMSText(
+          closureReceiptLoan,
+          customerName,
+          closureType,
+        );
+        window.open(
+          `https://wa.me/?text=${encodeURIComponent(text)}`,
+          "_blank",
+        );
+      }
+    } catch (e) {
+      console.error("Share failed:", e);
+    } finally {
+      setSharingClosure(false);
+    }
+  };
+
+  const shareClosureSMS = () => {
+    if (!closureReceiptLoan) return;
+    const customer = getCustomer(closureReceiptLoan.customerId);
+    const text = buildClosureSMSText(
+      closureReceiptLoan,
+      customer?.name || "Customer",
+      closureType,
+    );
+    window.open(`sms:?body=${encodeURIComponent(text)}`, "_blank");
+  };
+
   if (loading)
     return (
       <div
@@ -476,10 +659,13 @@ export default function Loans() {
     setForeclosingLoan(true);
     try {
       await actor.forecloseLoan(forecloseLoanTarget.loanId, amountPaise);
+      const closedLoan = forecloseLoanTarget;
       setForeCloseLoanTarget(null);
       const [updatedLoans] = await Promise.all([actor.getAllLoans()]);
       setLoans(updatedLoans as Loan[]);
-      alert("Loan foreclosed and closed successfully.");
+      setClosureReceiptLoan(closedLoan);
+      setClosureType("Foreclosed");
+      setClosureReceiptOpen(true);
     } catch (err) {
       console.error("Foreclose loan error:", err);
       alert(`Failed to foreclose loan: ${String(err)}`);
@@ -631,6 +817,87 @@ export default function Loans() {
                     <div className="text-muted-foreground">Disbursed</div>
                     <div className="font-bold">
                       {formatDate(loan.disbursedAt)}
+                    </div>
+                  </div>
+                  <div className="col-span-2 border-t pt-2 mt-1">
+                    <div className="text-muted-foreground text-xs mb-1">
+                      Documents
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <Button
+                        data-ocid={`loans.proposal.secondary_button.${i + 1}`}
+                        size="sm"
+                        variant="outline"
+                        className="text-xs h-7 px-2"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const cust = getCustomer(loan.customerId);
+                          const vill = getVillage(loan.villageId);
+                          generateLoanProposalPDF(
+                            loan,
+                            cust?.name || "Customer",
+                            vill ? `${vill.shortCode} - ${vill.name}` : "--",
+                            formatRupees,
+                            formatDate,
+                          );
+                        }}
+                      >
+                        📋 Proposal
+                      </Button>
+                      <Button
+                        data-ocid={`loans.disbursal.secondary_button.${i + 1}`}
+                        size="sm"
+                        variant="outline"
+                        className="text-xs h-7 px-2"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDisbursalLoan(loan);
+                          setDisbursalReceiptOpen(true);
+                        }}
+                      >
+                        🧾 Disbursal
+                      </Button>
+                      {!isActive && (
+                        <>
+                          <Button
+                            data-ocid={`loans.closure.secondary_button.${i + 1}`}
+                            size="sm"
+                            variant="outline"
+                            className="text-xs h-7 px-2 text-orange-700 border-orange-200"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setClosureReceiptLoan(loan);
+                              setClosureType("Closed");
+                              setClosureReceiptOpen(true);
+                            }}
+                          >
+                            📄 Closure
+                          </Button>
+                          <Button
+                            data-ocid={`loans.noc.secondary_button.${i + 1}`}
+                            size="sm"
+                            variant="outline"
+                            className="text-xs h-7 px-2 text-green-700 border-green-200"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const cust = getCustomer(loan.customerId);
+                              const vill = getVillage(loan.villageId);
+                              generateNOCPdf(
+                                loan,
+                                cust?.name || "Customer",
+                                cust?.address || "",
+                                cust?.aadharNo || "",
+                                vill
+                                  ? `${vill.shortCode} - ${vill.name}`
+                                  : "--",
+                                "Full Payment",
+                              );
+                            }}
+                          >
+                            ✅ NOC
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -869,7 +1136,7 @@ export default function Loans() {
                     className="bg-white border-2 border-teal-200 rounded-xl p-5"
                   >
                     <div className="text-center border-b border-gray-200 pb-3 mb-4">
-                      <div className="text-2xl">🏦</div>
+                      {" "}
                       <div className="font-bold text-teal-700 text-lg">
                         Village Finance
                       </div>
@@ -1417,30 +1684,213 @@ export default function Loans() {
               </div>
             </div>
           )}
-          <DialogFooter className="flex-col sm:flex-row gap-2">
+          <DialogFooter className="flex-col sm:flex-row gap-2 flex-wrap">
             {detailLoan && (
-              <Button
-                data-ocid="loans.detail.pdf.secondary_button"
-                onClick={() => {
-                  const cust = getCustomer(detailLoan.customerId);
-                  const vill = getVillage(detailLoan.villageId);
-                  generateLoanProposalPDF(
-                    detailLoan,
-                    cust?.name || "Customer",
-                    vill ? `${vill.shortCode} - ${vill.name}` : "--",
-                    formatRupees,
-                    formatDate,
-                  );
-                }}
-                className="bg-purple-600 hover:bg-purple-700 text-white"
-              >
-                📄 Download Loan Proposal
-              </Button>
+              <>
+                <Button
+                  data-ocid="loans.detail.pdf.secondary_button"
+                  onClick={() => {
+                    const cust = getCustomer(detailLoan.customerId);
+                    const vill = getVillage(detailLoan.villageId);
+                    generateLoanProposalPDF(
+                      detailLoan,
+                      cust?.name || "Customer",
+                      vill ? `${vill.shortCode} - ${vill.name}` : "--",
+                      formatRupees,
+                      formatDate,
+                    );
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700 text-white text-xs"
+                >
+                  📋 Loan Proposal
+                </Button>
+                <Button
+                  data-ocid="loans.detail.disbursal.secondary_button"
+                  onClick={() => {
+                    setDetailLoan(null);
+                    setDisbursalLoan(detailLoan);
+                    setDisbursalReceiptOpen(true);
+                  }}
+                  className="bg-teal-600 hover:bg-teal-700 text-white text-xs"
+                >
+                  🧾 Disbursal Receipt
+                </Button>
+                {detailLoan.status !== Variant_closed_active.active && (
+                  <>
+                    <Button
+                      data-ocid="loans.detail.closure.secondary_button"
+                      onClick={() => {
+                        setDetailLoan(null);
+                        setClosureReceiptLoan(detailLoan);
+                        setClosureType("Closed");
+                        setClosureReceiptOpen(true);
+                      }}
+                      className="bg-orange-500 hover:bg-orange-600 text-white text-xs"
+                    >
+                      📄 Closure Receipt
+                    </Button>
+                    <Button
+                      data-ocid="loans.detail.noc.secondary_button"
+                      onClick={() => {
+                        const cust = getCustomer(detailLoan.customerId);
+                        const vill = getVillage(detailLoan.villageId);
+                        generateNOCPdf(
+                          detailLoan,
+                          cust?.name || "Customer",
+                          cust?.address || "",
+                          cust?.aadharNo || "",
+                          vill ? `${vill.shortCode} - ${vill.name}` : "--",
+                          "Full Payment",
+                        );
+                      }}
+                      className="bg-green-600 hover:bg-green-700 text-white text-xs"
+                    >
+                      ✅ NOC Certificate
+                    </Button>
+                  </>
+                )}
+              </>
             )}
             <Button
               data-ocid="loans.detail.close_button"
               variant="outline"
               onClick={() => setDetailLoan(null)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Closure Receipt Dialog */}
+      <Dialog
+        open={closureReceiptOpen}
+        onOpenChange={(v) => {
+          if (!v) {
+            setClosureReceiptOpen(false);
+          }
+        }}
+      >
+        <DialogContent
+          data-ocid="loans.closure_receipt.dialog"
+          className="max-w-md"
+        >
+          <DialogHeader>
+            <DialogTitle>Loan Closure Receipt</DialogTitle>
+          </DialogHeader>
+          {closureReceiptLoan &&
+            (() => {
+              const customer = getCustomer(closureReceiptLoan.customerId);
+              const village = getVillage(closureReceiptLoan.villageId);
+              const closureLabel =
+                closureType === "Foreclosed"
+                  ? "Foreclosure"
+                  : closureType === "TopUp"
+                    ? "Top-Up Closure"
+                    : "Full Payment";
+              return (
+                <div className="space-y-4">
+                  <div
+                    ref={closureReceiptRef}
+                    className="bg-white border-2 border-orange-200 rounded-xl p-5"
+                  >
+                    <div className="text-center border-b border-gray-200 pb-3 mb-4">
+                      {" "}
+                      <div className="font-bold text-orange-700 text-lg">
+                        Village Finance
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Loan Closure Receipt
+                      </div>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <DRow label="Loan ID" value={closureReceiptLoan.loanId} />
+                      <DRow label="Customer" value={customer?.name || "--"} />
+                      <DRow
+                        label="Village"
+                        value={
+                          village
+                            ? `${village.shortCode} - ${village.name}`
+                            : "--"
+                        }
+                      />
+                      {customer?.phone && (
+                        <DRow label="Phone" value={customer.phone} />
+                      )}
+                      <div className="border-t pt-2 mt-2 space-y-2">
+                        <DRow
+                          label="Principal"
+                          value={formatRupees(closureReceiptLoan.principal)}
+                          bold
+                        />
+                        <DRow
+                          label="Total Repayable"
+                          value={formatRupees(closureReceiptLoan.totalAmount)}
+                        />
+                        <DRow label="Closure Type" value={closureLabel} bold />
+                        <DRow
+                          label="Date Disbursed"
+                          value={formatDate(closureReceiptLoan.disbursedAt)}
+                        />
+                      </div>
+                      <div className="mt-3 text-center">
+                        <span className="inline-block bg-red-100 text-red-700 border border-red-300 rounded-full px-4 py-1 text-xs font-bold tracking-widest uppercase">
+                          ✅ Account Closed
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-center mt-4 pt-3 border-t border-gray-100">
+                      <div className="text-xs text-gray-400">
+                        Loan closed — Village Finance
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      data-ocid="loans.closure_receipt.whatsapp.primary_button"
+                      onClick={shareClosureWhatsApp}
+                      disabled={sharingClosure}
+                      className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs"
+                    >
+                      {sharingClosure ? "Preparing..." : "📤 WhatsApp"}
+                    </Button>
+                    <Button
+                      data-ocid="loans.closure_receipt.sms.secondary_button"
+                      onClick={shareClosureSMS}
+                      className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs"
+                    >
+                      💬 SMS
+                    </Button>
+                    <Button
+                      data-ocid="loans.closure_receipt.noc.secondary_button"
+                      onClick={() => {
+                        const cust = getCustomer(closureReceiptLoan.customerId);
+                        const vill = getVillage(closureReceiptLoan.villageId);
+                        generateNOCPdf(
+                          closureReceiptLoan,
+                          cust?.name || "Customer",
+                          cust?.address || "",
+                          cust?.aadharNo || "",
+                          vill ? `${vill.shortCode} - ${vill.name}` : "--",
+                          closureLabel,
+                        );
+                      }}
+                      className="flex-1 bg-green-700 hover:bg-green-800 text-white text-xs"
+                    >
+                      ✅ NOC
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
+          <DialogFooter>
+            <Button
+              data-ocid="loans.closure_receipt.close_button"
+              variant="outline"
+              onClick={() => {
+                setClosureReceiptOpen(false);
+                setClosureReceiptLoan(null);
+              }}
             >
               Close
             </Button>

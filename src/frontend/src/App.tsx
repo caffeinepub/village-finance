@@ -96,7 +96,7 @@ function AdminPanel() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
         <div className="text-center">
-          <div className="text-4xl mb-4">🏦</div>
+          {" "}
           <div className="text-xl font-semibold text-indigo-700">
             Village Finance
           </div>
@@ -113,7 +113,7 @@ function AdminPanel() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
         <div className="text-center">
-          <div className="text-4xl mb-4">🏦</div>
+          {" "}
           <div className="text-xl font-semibold text-indigo-700">
             Village Finance
           </div>
@@ -131,7 +131,7 @@ function AdminPanel() {
       <header className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">🏦</span>
+            {" "}
             <span className="text-xl font-bold">Village Finance</span>
             <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
               Admin
@@ -211,7 +211,7 @@ function AppContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
         <div className="text-center">
-          <div className="text-5xl mb-4">🏦</div>
+          {" "}
           <div className="text-xl font-semibold text-white mb-2">
             Village Finance
           </div>
