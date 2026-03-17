@@ -7,13 +7,11 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { useAuth } from "../context/AuthContext";
 import { useActor } from "../hooks/useActor";
-import type { ExtendedBackend } from "../types";
 import { formatDate, formatRupees } from "../utils/format";
 
 export default function CustomerPortal() {
   const { customerSession, logout } = useAuth();
-  const { actor: rawActor } = useActor();
-  const actor = rawActor as ExtendedBackend | null;
+  const { actor } = useActor();
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -27,12 +25,24 @@ export default function CustomerPortal() {
     (async () => {
       setLoading(true);
       try {
-        const [cust, loanList] = await Promise.all([
-          actor.getCustomerByPhone(customerSession.phone),
-          actor.getLoansByPhone(customerSession.phone),
-        ]);
-        setCustomer(cust);
-        setLoans(loanList);
+        // Look up customer by phone from all customers
+        const allCustomers = await actor.getAllCustomers();
+        const found = allCustomers.find(
+          (c) => c.phone.trim() === customerSession.phone.trim(),
+        );
+
+        if (found) {
+          setCustomer(found);
+          // Get loans for this specific customer
+          const loanList = await actor.getLoansByCustomer(found.id);
+          setLoans(loanList);
+        } else {
+          setCustomer(null);
+          setLoans([]);
+        }
+      } catch {
+        setCustomer(null);
+        setLoans([]);
       } finally {
         setLoading(false);
       }

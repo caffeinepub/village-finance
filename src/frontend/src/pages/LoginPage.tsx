@@ -6,7 +6,6 @@ import { Label } from "../components/ui/label";
 import { type CustomerSession, useAuth } from "../context/AuthContext";
 import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
-import type { ExtendedBackend } from "../types";
 
 type SelectedRole = "admin" | "staff" | "customer" | null;
 type Step = "select" | "form";
@@ -20,8 +19,7 @@ const DEFAULT_AGENT_PIN = "533286";
 
 export default function LoginPage() {
   const { login, isLoggingIn } = useInternetIdentity();
-  const { actor: rawActor } = useActor();
-  const actor = rawActor as ExtendedBackend | null;
+  const { actor } = useActor();
   const { loginAsCustomer, loginAsStaff, loginAsAdmin } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState<SelectedRole>(null);
@@ -92,15 +90,30 @@ export default function LoginPage() {
     setCustChecking(true);
     setCustError("");
     try {
-      const isValid = await actor.verifyCustomerLoanAccess(
-        custPhone.trim(),
-        custLoanId.trim().toUpperCase(),
+      // Step 1: Get all customers and find by phone
+      const allCustomers = await actor.getAllCustomers();
+      const customer = allCustomers.find(
+        (c) => c.phone.trim() === custPhone.trim(),
       );
-      if (isValid) {
+
+      if (!customer) {
+        setCustError("Mobile number not found. Please check and try again.");
+        return;
+      }
+
+      // Step 2: Get all loans and find matching loan for this customer
+      const allLoans = await actor.getAllLoans();
+      const matchedLoan = allLoans.find(
+        (l) =>
+          l.customerId === customer.id &&
+          l.loanId.toUpperCase() === custLoanId.trim().toUpperCase(),
+      );
+
+      if (matchedLoan) {
         const session: CustomerSession = {
           phone: custPhone.trim(),
           loanId: custLoanId.trim().toUpperCase(),
-          customerName: custName.trim() || "Customer",
+          customerName: customer.name || custName.trim() || "Customer",
         };
         loginAsCustomer(session);
       } else {
@@ -454,7 +467,7 @@ export default function LoginPage() {
             <div className="space-y-4">
               <div>
                 <Label className="text-amber-200 text-sm mb-1 block">
-                  Your Name
+                  Your Name (optional)
                 </Label>
                 <Input
                   data-ocid="login.customer.name.input"
