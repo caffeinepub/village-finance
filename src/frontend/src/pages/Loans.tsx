@@ -205,6 +205,45 @@ function generateNOCPdf(
   }
 }
 
+/** Native share sheet — lets user pick WhatsApp, SMS, or any app */
+async function shareReceipt(
+  receiptEl: HTMLElement | null,
+  title: string,
+  text: string,
+  filename: string,
+  setSharingState: (v: boolean) => void,
+) {
+  setSharingState(true);
+  try {
+    const blob = receiptEl ? await captureElementAsBlob(receiptEl) : null;
+    const file = blob
+      ? new File([blob], filename, { type: "image/png" })
+      : null;
+    if (navigator.share) {
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ title, text, files: [file] });
+      } else {
+        await navigator.share({ title, text });
+      }
+    } else {
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    }
+  } catch (e) {
+    if (e instanceof Error && e.name !== "AbortError") {
+      console.error("Share failed:", e);
+    }
+  } finally {
+    setSharingState(false);
+  }
+}
+
 export default function Loans() {
   const { actor } = useActor();
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -463,67 +502,19 @@ export default function Loans() {
     }
   };
 
-  // Share disbursal receipt via WhatsApp (image)
-  const shareDisbursalWhatsApp = async () => {
-    if (!disbursalLoan || !disbursalReceiptRef.current) return;
-    setSharingDisbursal(true);
-    try {
-      const blob = await captureElementAsBlob(disbursalReceiptRef.current);
-      const customer = getCustomer(disbursalLoan.customerId);
-      const customerName = customer?.name || "Customer";
-      if (
-        blob &&
-        navigator.canShare &&
-        navigator.canShare({
-          files: [new File([blob], "receipt.png", { type: "image/png" })],
-        })
-      ) {
-        const file = new File(
-          [blob],
-          `VF_Disbursal_${disbursalLoan.loanId}.png`,
-          { type: "image/png" },
-        );
-        await navigator.share({
-          title: "Village Finance Disbursal Receipt",
-          text: `Loan disbursal receipt for ${customerName} - ${disbursalLoan.loanId}`,
-          files: [file],
-        });
-      } else if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `VF_Disbursal_${disbursalLoan.loanId}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
-        setTimeout(() => {
-          const text = buildDisbursalSMSText(disbursalLoan, customerName);
-          window.open(
-            `https://wa.me/?text=${encodeURIComponent(text)}`,
-            "_blank",
-          );
-        }, 500);
-      } else {
-        const text = buildDisbursalSMSText(disbursalLoan, customerName);
-        window.open(
-          `https://wa.me/?text=${encodeURIComponent(text)}`,
-          "_blank",
-        );
-      }
-    } catch (e) {
-      console.error("Share failed:", e);
-    } finally {
-      setSharingDisbursal(false);
-    }
-  };
-
-  const shareDisbursalSMS = () => {
+  // Share disbursal receipt via native share sheet
+  const shareDisbursalReceipt = () => {
     if (!disbursalLoan) return;
     const customer = getCustomer(disbursalLoan.customerId);
-    const text = buildDisbursalSMSText(
-      disbursalLoan,
-      customer?.name || "Customer",
+    const customerName = customer?.name || "Customer";
+    const text = buildDisbursalSMSText(disbursalLoan, customerName);
+    shareReceipt(
+      disbursalReceiptRef.current,
+      "Village Finance Disbursal Receipt",
+      text,
+      `VF_Disbursal_${disbursalLoan.loanId}.png`,
+      setSharingDisbursal,
     );
-    window.open(`sms:?body=${encodeURIComponent(text)}`, "_blank");
   };
 
   function buildDisbursalSMSText(loan: Loan, customerName: string): string {
@@ -557,75 +548,23 @@ export default function Loans() {
     ].join("\n");
   }
 
-  const shareClosureWhatsApp = async () => {
-    if (!closureReceiptLoan || !closureReceiptRef.current) return;
-    setSharingClosure(true);
-    try {
-      const blob = await captureElementAsBlob(closureReceiptRef.current);
-      const customer = getCustomer(closureReceiptLoan.customerId);
-      const customerName = customer?.name || "Customer";
-      if (
-        blob &&
-        navigator.canShare &&
-        navigator.canShare({
-          files: [new File([blob], "receipt.png", { type: "image/png" })],
-        })
-      ) {
-        const file = new File(
-          [blob],
-          `VF_Closure_${closureReceiptLoan.loanId}.png`,
-          { type: "image/png" },
-        );
-        await navigator.share({
-          title: "Village Finance Closure Receipt",
-          text: `Loan closure receipt for ${customerName} - ${closureReceiptLoan.loanId}`,
-          files: [file],
-        });
-      } else if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `VF_Closure_${closureReceiptLoan.loanId}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
-        setTimeout(() => {
-          const text = buildClosureSMSText(
-            closureReceiptLoan,
-            customerName,
-            closureType,
-          );
-          window.open(
-            `https://wa.me/?text=${encodeURIComponent(text)}`,
-            "_blank",
-          );
-        }, 500);
-      } else {
-        const text = buildClosureSMSText(
-          closureReceiptLoan,
-          customerName,
-          closureType,
-        );
-        window.open(
-          `https://wa.me/?text=${encodeURIComponent(text)}`,
-          "_blank",
-        );
-      }
-    } catch (e) {
-      console.error("Share failed:", e);
-    } finally {
-      setSharingClosure(false);
-    }
-  };
-
-  const shareClosureSMS = () => {
+  // Share closure receipt via native share sheet
+  const shareClosureReceipt = () => {
     if (!closureReceiptLoan) return;
     const customer = getCustomer(closureReceiptLoan.customerId);
+    const customerName = customer?.name || "Customer";
     const text = buildClosureSMSText(
       closureReceiptLoan,
-      customer?.name || "Customer",
+      customerName,
       closureType,
     );
-    window.open(`sms:?body=${encodeURIComponent(text)}`, "_blank");
+    shareReceipt(
+      closureReceiptRef.current,
+      "Village Finance Closure Receipt",
+      text,
+      `VF_Closure_${closureReceiptLoan.loanId}.png`,
+      setSharingClosure,
+    );
   };
 
   if (loading)
@@ -1205,19 +1144,12 @@ export default function Loans() {
                   {/* Share Buttons */}
                   <div className="flex gap-2">
                     <Button
-                      data-ocid="loans.disbursal_receipt.whatsapp.primary_button"
-                      onClick={shareDisbursalWhatsApp}
+                      data-ocid="loans.disbursal_receipt.share.primary_button"
+                      onClick={shareDisbursalReceipt}
                       disabled={sharingDisbursal}
                       className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs"
                     >
-                      {sharingDisbursal ? "Preparing..." : "📤 WhatsApp"}
-                    </Button>
-                    <Button
-                      data-ocid="loans.disbursal_receipt.sms.secondary_button"
-                      onClick={shareDisbursalSMS}
-                      className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs"
-                    >
-                      💬 SMS
+                      {sharingDisbursal ? "Preparing..." : "📤 Share"}
                     </Button>
                     <Button
                       data-ocid="loans.disbursal_receipt.pdf.secondary_button"
@@ -1847,19 +1779,12 @@ export default function Loans() {
                   </div>
                   <div className="flex gap-2">
                     <Button
-                      data-ocid="loans.closure_receipt.whatsapp.primary_button"
-                      onClick={shareClosureWhatsApp}
+                      data-ocid="loans.closure_receipt.share.primary_button"
+                      onClick={shareClosureReceipt}
                       disabled={sharingClosure}
                       className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs"
                     >
-                      {sharingClosure ? "Preparing..." : "📤 WhatsApp"}
-                    </Button>
-                    <Button
-                      data-ocid="loans.closure_receipt.sms.secondary_button"
-                      onClick={shareClosureSMS}
-                      className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs"
-                    >
-                      💬 SMS
+                      {sharingClosure ? "Preparing..." : "📤 Share"}
                     </Button>
                     <Button
                       data-ocid="loans.closure_receipt.noc.secondary_button"

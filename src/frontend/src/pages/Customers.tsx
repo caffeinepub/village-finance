@@ -149,62 +149,40 @@ function buildPaymentSMSText(
     .join("\n");
 }
 
-/** Open WhatsApp safely — opens window before any async work to avoid popup blockers */
-async function shareViaWhatsApp(
+/** Native share sheet — lets user pick WhatsApp, SMS, or any app */
+async function shareReceipt(
   receiptEl: HTMLElement | null,
-  payment: Payment,
-  customerName: string,
-  loanId: string,
+  title: string,
+  text: string,
+  filename: string,
   setSharingState: (v: boolean) => void,
 ) {
   setSharingState(true);
-  const smsText = buildPaymentSMSText(payment, customerName, loanId);
   try {
-    // Try native share (mobile) first — this is a direct user gesture so no popup block
-    if (
-      receiptEl &&
-      navigator.canShare &&
-      navigator.canShare({
-        files: [new File([new Blob()], "t.png", { type: "image/png" })],
-      })
-    ) {
-      const blob = await captureElementAsBlob(receiptEl);
-      if (blob) {
-        await navigator.share({
-          title: "Village Finance Payment Receipt",
-          files: [
-            new File([blob], `VF_Receipt_${payment.receiptNo}.png`, {
-              type: "image/png",
-            }),
-          ],
-        });
-        setSharingState(false);
-        return;
+    const blob = receiptEl ? await captureElementAsBlob(receiptEl) : null;
+    const file = blob
+      ? new File([blob], filename, { type: "image/png" })
+      : null;
+    if (navigator.share) {
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ title, text, files: [file] });
+      } else {
+        await navigator.share({ title, text });
       }
-    }
-
-    // Desktop / fallback: open WhatsApp link directly in same tab to avoid popup block
-    if (receiptEl) {
-      const blob = await captureElementAsBlob(receiptEl);
+    } else {
+      // Desktop fallback: download image
       if (blob) {
-        // Download the image
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `VF_Receipt_${payment.receiptNo}.png`;
+        a.download = filename;
         a.click();
         URL.revokeObjectURL(url);
       }
     }
-    // Open WhatsApp — use location assign to avoid popup blocking
-    window.open(`https://wa.me/?text=${encodeURIComponent(smsText)}`, "_blank");
   } catch (e) {
-    // If share was cancelled by user, just ignore; otherwise try direct link
     if (e instanceof Error && e.name !== "AbortError") {
-      window.open(
-        `https://wa.me/?text=${encodeURIComponent(smsText)}`,
-        "_blank",
-      );
+      console.error("Share failed:", e);
     }
   } finally {
     setSharingState(false);
@@ -1094,32 +1072,24 @@ export default function Customers() {
               />
               <div className="flex gap-2">
                 <Button
-                  data-ocid="customers.receipt.whatsapp.primary_button"
+                  data-ocid="customers.receipt.share.primary_button"
                   onClick={() =>
-                    shareViaWhatsApp(
+                    shareReceipt(
                       receiptRef.current,
-                      receiptPayment,
-                      receiptCustomerName,
-                      receiptLoanId,
+                      "Village Finance Receipt",
+                      buildPaymentSMSText(
+                        receiptPayment,
+                        receiptCustomerName,
+                        receiptLoanId,
+                      ),
+                      `VF_Receipt_${receiptPayment.receiptNo}.png`,
                       setSharingReceipt,
                     )
                   }
                   disabled={sharingReceipt}
                   className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs"
                 >
-                  {sharingReceipt ? "Preparing..." : "📤 WhatsApp"}
-                </Button>
-                <Button
-                  data-ocid="customers.receipt.sms.secondary_button"
-                  onClick={() =>
-                    window.open(
-                      `sms:?body=${encodeURIComponent(buildPaymentSMSText(receiptPayment, receiptCustomerName, receiptLoanId))}`,
-                      "_blank",
-                    )
-                  }
-                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs"
-                >
-                  💬 SMS
+                  {sharingReceipt ? "Preparing..." : "📤 Share"}
                 </Button>
                 <Button
                   data-ocid="customers.receipt.download.secondary_button"
@@ -1214,39 +1184,25 @@ export default function Customers() {
               </div>
               <div className="flex gap-2">
                 <Button
-                  data-ocid="customers.history_receipt.whatsapp.button"
+                  data-ocid="customers.history_receipt.share.button"
                   size="sm"
                   onClick={() =>
-                    shareViaWhatsApp(
+                    shareReceipt(
                       historyReceiptRef.current,
-                      selectedHistoryPayment,
-                      viewLoansCustomer?.name || "",
-                      viewReceiptsLoan?.loanId || "",
+                      "Village Finance Receipt",
+                      buildPaymentSMSText(
+                        selectedHistoryPayment,
+                        viewLoansCustomer?.name || "",
+                        viewReceiptsLoan?.loanId || "",
+                      ),
+                      `VF_Receipt_${selectedHistoryPayment.receiptNo}.png`,
                       setSharingHistoryReceipt,
                     )
                   }
                   disabled={sharingHistoryReceipt}
                   className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs"
                 >
-                  {sharingHistoryReceipt ? "Sharing..." : "📤 WhatsApp"}
-                </Button>
-                <Button
-                  data-ocid="customers.history_receipt.sms.button"
-                  size="sm"
-                  onClick={() => {
-                    const text = buildPaymentSMSText(
-                      selectedHistoryPayment,
-                      viewLoansCustomer?.name || "",
-                      viewReceiptsLoan?.loanId || "",
-                    );
-                    window.open(
-                      `sms:?body=${encodeURIComponent(text)}`,
-                      "_blank",
-                    );
-                  }}
-                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs"
-                >
-                  💬 SMS
+                  {sharingHistoryReceipt ? "Sharing..." : "📤 Share"}
                 </Button>
               </div>
             </div>
@@ -1362,97 +1318,12 @@ export default function Customers() {
                     </div>
                     <div className="flex gap-2">
                       <Button
-                        data-ocid="customers.disbursal_receipt.whatsapp.button"
+                        data-ocid="customers.disbursal_receipt.share.button"
                         size="sm"
                         disabled={sharingDisbursalHistory}
-                        onClick={async () => {
-                          setSharingDisbursalHistory(true);
-                          try {
-                            const el = historyDisbursalReceiptRef.current;
-                            const customerName = viewLoansCustomer?.name || "";
-                            const smsText = [
-                              "Village Finance Loan Disbursal",
-                              `Loan ID: ${loan.loanId}`,
-                              `Customer: ${customerName}`,
-                              `Principal: ${formatRupees(loan.principal)}`,
-                              `EMI: ${formatRupees(loan.emi)}/month`,
-                              `Tenure: ${loan.tenureMonths.toString()} months`,
-                              `Total Interest: ₹${totalInterest.toFixed(2)}`,
-                              `Total Repayable: ${formatRupees(loan.totalAmount)}`,
-                              `Date: ${formatDate(loan.disbursedAt)}`,
-                            ].join("\n");
-                            if (el) {
-                              const blob = await captureElementAsBlob(el);
-                              if (!blob) {
-                                window.open(
-                                  `https://wa.me/?text=${encodeURIComponent(smsText)}`,
-                                  "_blank",
-                                );
-                                setSharingDisbursalHistory(false);
-                                return;
-                              }
-                              try {
-                                if (
-                                  navigator.share &&
-                                  navigator.canShare({
-                                    files: [
-                                      new File([blob], "receipt.png", {
-                                        type: "image/png",
-                                      }),
-                                    ],
-                                  })
-                                ) {
-                                  await navigator.share({
-                                    files: [
-                                      new File([blob], "receipt.png", {
-                                        type: "image/png",
-                                      }),
-                                    ],
-                                    text: smsText,
-                                  });
-                                } else {
-                                  const url = URL.createObjectURL(blob);
-                                  const a = document.createElement("a");
-                                  a.href = url;
-                                  a.download = `disbursal-${loan.loanId}.png`;
-                                  a.click();
-                                  URL.revokeObjectURL(url);
-                                  setTimeout(
-                                    () =>
-                                      window.open(
-                                        `https://wa.me/?text=${encodeURIComponent(smsText)}`,
-                                        "_blank",
-                                      ),
-                                    500,
-                                  );
-                                }
-                              } catch {
-                                window.open(
-                                  `https://wa.me/?text=${encodeURIComponent(smsText)}`,
-                                  "_blank",
-                                );
-                              }
-                              setSharingDisbursalHistory(false);
-                              window.open(
-                                `https://wa.me/?text=${encodeURIComponent(smsText)}`,
-                                "_blank",
-                              );
-                              setSharingDisbursalHistory(false);
-                            }
-                          } catch {
-                            setSharingDisbursalHistory(false);
-                          }
-                        }}
-                        className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs"
-                      >
-                        {sharingDisbursalHistory ? "Sharing..." : "📤 WhatsApp"}
-                      </Button>
-                      <Button
-                        data-ocid="customers.disbursal_receipt.sms.button"
-                        size="sm"
                         onClick={() => {
                           const customerName = viewLoansCustomer?.name || "";
-                          const text = [
+                          const smsText = [
                             "Village Finance Loan Disbursal",
                             `Loan ID: ${loan.loanId}`,
                             `Customer: ${customerName}`,
@@ -1463,14 +1334,17 @@ export default function Customers() {
                             `Total Repayable: ${formatRupees(loan.totalAmount)}`,
                             `Date: ${formatDate(loan.disbursedAt)}`,
                           ].join("\n");
-                          window.open(
-                            `sms:?body=${encodeURIComponent(text)}`,
-                            "_blank",
+                          shareReceipt(
+                            historyDisbursalReceiptRef.current,
+                            "Village Finance Disbursal Receipt",
+                            smsText,
+                            `VF_Disbursal_${loan.loanId}.png`,
+                            setSharingDisbursalHistory,
                           );
                         }}
-                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs"
+                        className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs"
                       >
-                        💬 SMS
+                        {sharingDisbursalHistory ? "Sharing..." : "📤 Share"}
                       </Button>
                     </div>
                   </>
